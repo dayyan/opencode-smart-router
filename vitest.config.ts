@@ -5,8 +5,11 @@ import { defineConfig } from "vitest/config";
 //   published package (files: ["src/", ...]) can never ship tests (plan C4).
 // - The default run excludes `test/smoke/**`: those are opt-in real-OpenCode
 //   smokes gated behind RUN_OC_SMOKE=1 (run via `npm run smoke`).
-// - Coverage source is `src/`. Thresholds are wired but intentionally left
-//   non-failing in Wave 0; they are turned on in Phase 5.1.
+// - Coverage source is `src/`. Thresholds are enforced whenever coverage is
+//   collected (via `pnpm run test:coverage` or `pnpm run test:gate`). The
+//   default `pnpm test` deliberately does NOT collect coverage so the local
+//   iteration loop stays fast; the merge contract is `pnpm run test:gate`
+//   (and `prepublishOnly` chains it).
 export default defineConfig({
   test: {
     root: ".",
@@ -24,12 +27,14 @@ export default defineConfig({
       provider: "v8",
       reportsDirectory: "coverage",
       include: ["src/**/*.ts"],
-      // Thresholds turned on in Phase 5.1. Global floors are computed across the
-      // whole `src/` total (index.ts is plugin wiring, intentionally covered by
-      // the integration/smoke suites rather than unit tests, so it is not gated
-      // per-file). The per-directory branch gates lock in the global DoD target
-      // (>=90% branch on the pure guard/verify/escalate/telemetry/router modules);
-      // each is set a few points below the measured baseline to avoid brittleness.
+      // Thresholds are enforced whenever coverage is collected (vitest v4 fails
+      // the run by default on threshold breach). Global floors are computed
+      // across the whole `src/` total (index.ts is plugin wiring, intentionally
+      // covered by the integration/smoke suites rather than unit tests, so it
+      // is not gated per-file). The per-directory branch gates lock in the
+      // global DoD target (>=90% branch on the pure guard/verify/escalate/
+      // telemetry/router modules); each is set a few points below the
+      // measured baseline to avoid brittleness.
       thresholds: {
         statements: 80,
         branches: 85,
