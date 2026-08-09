@@ -63,13 +63,20 @@ export const handleSystemTransform = async (
 export const handleConfig = async (
   ctx: PluginContext,
   activeTiersAtLoad: Preset,
-  opencodeConfig: any,
+  opencodeConfig: {
+    agent?: Record<string, Record<string, unknown> | undefined>;
+    command?: Record<string, { template: string; description?: string; [key: string]: unknown }>;
+  },
 ): Promise<void> => {
   // The config() hook runs once at plugin load time, so the load-time
   // snapshot is the right cfg here (matches the original behaviour where
   // `cfg` was initialised from loadConfig() once at factory start).
-  registerTierAgents(opencodeConfig, activeTiersAtLoad, ctx.initialConfig);
-  registerRouterCommands(opencodeConfig);
+  registerTierAgents(
+    opencodeConfig as Parameters<typeof registerTierAgents>[0],
+    activeTiersAtLoad,
+    ctx.initialConfig,
+  );
+  registerRouterCommands(opencodeConfig as Parameters<typeof registerRouterCommands>[0]);
 
   // PR 2 of adaptive-reasoning: capture the baseline agent def per tier so
   // the runtime `tool.execute.after` hook can restore exactly the shape
@@ -78,7 +85,7 @@ export const handleConfig = async (
   // variant / options the static config emitted). Same-tier patches are
   // serialised by the per-tier in-flight owner in
   // `ctx.reasoningStore.acquireTierOwner` — see `src/reasoning/store.ts`.
-  ctx.opencodeConfig = opencodeConfig;
+  ctx.opencodeConfig = opencodeConfig as { agent?: Record<string, Record<string, unknown>> };
   const agentMap = opencodeConfig?.agent as Record<string, Record<string, unknown>> | undefined;
   if (agentMap) {
     for (const [tierName, agentDef] of Object.entries(agentMap)) {

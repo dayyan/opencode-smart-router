@@ -25,15 +25,15 @@ let origLevel: string | undefined;
 let origLog: string | undefined;
 
 beforeEach(() => {
-  origLevel = process.env["MODEL_ROUTER_LOG_LEVEL"];
-  origLog = process.env["MODEL_ROUTER_LOG"];
+  origLevel = process.env.MODEL_ROUTER_LOG_LEVEL;
+  origLog = process.env.MODEL_ROUTER_LOG;
 });
 
 afterEach(() => {
-  if (origLevel === undefined) delete process.env["MODEL_ROUTER_LOG_LEVEL"];
-  else process.env["MODEL_ROUTER_LOG_LEVEL"] = origLevel;
-  if (origLog === undefined) delete process.env["MODEL_ROUTER_LOG"];
-  else process.env["MODEL_ROUTER_LOG"] = origLog;
+  if (origLevel === undefined) delete process.env.MODEL_ROUTER_LOG_LEVEL;
+  else process.env.MODEL_ROUTER_LOG_LEVEL = origLevel;
+  if (origLog === undefined) delete process.env.MODEL_ROUTER_LOG;
+  else process.env.MODEL_ROUTER_LOG = origLog;
   __resetLoggerForTest();
   vi.restoreAllMocks();
 });
@@ -52,24 +52,24 @@ const filterLoggerLines = (calls: unknown[][]): string[] => {
 
 describe("observability — envelope shape", () => {
   it("emits a JSON envelope with ts, level, event, and caller payload", () => {
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     __resetLoggerForTest();
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     log.info({ event: "test.event", foo: "bar", n: 42 });
     const lines = filterLoggerLines(spy.mock.calls);
     expect(lines).toHaveLength(1);
     const env = extractEnvelope(lines[0]!);
-    expect(env["level"]).toBe("info");
-    expect(env["event"]).toBe("test.event");
-    expect(env["foo"]).toBe("bar");
-    expect(env["n"]).toBe(42);
-    expect(typeof env["ts"]).toBe("string");
+    expect(env.level).toBe("info");
+    expect(env.event).toBe("test.event");
+    expect(env.foo).toBe("bar");
+    expect(env.n).toBe(42);
+    expect(typeof env.ts).toBe("string");
     // ISO 8601-ish: 2026-06-26T...
-    expect(env["ts"]).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(env.ts).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
   it("prefixes every line with [model-router] for grep-ability", () => {
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     __resetLoggerForTest();
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     log.debug({ event: "x" });
@@ -78,7 +78,7 @@ describe("observability — envelope shape", () => {
   });
 
   it("the envelope is a single line (no embedded newlines)", () => {
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     __resetLoggerForTest();
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     log.info({ event: "x", payload: { a: 1, b: "two\nlines" } });
@@ -96,7 +96,7 @@ describe("observability — level filtering", () => {
   ];
   for (const { env, emits } of cases) {
     it(`at level=${env}, emits exactly: ${emits.join(", ")}`, () => {
-      process.env["MODEL_ROUTER_LOG_LEVEL"] = env;
+      process.env.MODEL_ROUTER_LOG_LEVEL = env;
       __resetLoggerForTest();
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -110,7 +110,7 @@ describe("observability — level filtering", () => {
       const collected = (spy: ReturnType<typeof vi.spyOn>): LogLevel[] => {
         return filterLoggerLines(spy.mock.calls).map((line) => {
           const env = extractEnvelope(line);
-          return env["level"] as LogLevel;
+          return env.level as LogLevel;
         });
       };
       const allEmitted: LogLevel[] = [
@@ -124,7 +124,7 @@ describe("observability — level filtering", () => {
   }
 
   it("defaults to warn when MODEL_ROUTER_LOG_LEVEL is unset", () => {
-    delete process.env["MODEL_ROUTER_LOG_LEVEL"];
+    delete process.env.MODEL_ROUTER_LOG_LEVEL;
     __resetLoggerForTest();
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -136,7 +136,7 @@ describe("observability — level filtering", () => {
   });
 
   it("falls back to warn when MODEL_ROUTER_LOG_LEVEL is an unknown value", () => {
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "verbose";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "verbose";
     __resetLoggerForTest();
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -150,7 +150,7 @@ describe("observability — level filtering", () => {
 
 describe("observability — sink routing", () => {
   it("debug and info land on stdout (console.log)", () => {
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     __resetLoggerForTest();
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -163,7 +163,7 @@ describe("observability — sink routing", () => {
   });
 
   it("warn lands on stderr (console.warn)", () => {
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "info";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "info";
     __resetLoggerForTest();
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     log.warn({ event: "x" });
@@ -171,7 +171,7 @@ describe("observability — sink routing", () => {
   });
 
   it("error lands on stderr (console.error)", () => {
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "info";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "info";
     __resetLoggerForTest();
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     log.error({ event: "x" });
@@ -181,7 +181,7 @@ describe("observability — sink routing", () => {
 
 describe("observability — reserved key protection", () => {
   it("cannot be tricked into overwriting ts/level/event via the payload", () => {
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     __resetLoggerForTest();
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     // Cast through `unknown as LogPayload` so we can sneak reserved keys
@@ -195,15 +195,15 @@ describe("observability — reserved key protection", () => {
     } as unknown as { event: string; [k: string]: unknown };
     log.info(sneaky as never);
     const env = extractEnvelope(filterLoggerLines(spy.mock.calls)[0]!);
-    expect(env["event"]).toBe("real.event");
-    expect(env["level"]).toBe("info");
-    expect(env["ts"]).not.toBe("FAKE-TIMESTAMP");
-    expect(typeof env["ts"]).toBe("string");
-    expect(env["safe"]).toBe("ok");
+    expect(env.event).toBe("real.event");
+    expect(env.level).toBe("info");
+    expect(env.ts).not.toBe("FAKE-TIMESTAMP");
+    expect(typeof env.ts).toBe("string");
+    expect(env.safe).toBe("ok");
   });
 
   it("child bindings also strip reserved keys", () => {
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     __resetLoggerForTest();
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     const sneaky = {
@@ -215,16 +215,16 @@ describe("observability — reserved key protection", () => {
     const child = log.child(sneaky);
     child.info({ event: "real.event", extra: 1 });
     const env = extractEnvelope(filterLoggerLines(spy.mock.calls)[0]!);
-    expect(env["session"]).toBe("sess-1");
-    expect(env["event"]).toBe("real.event");
-    expect(env["level"]).toBe("info");
-    expect(env["ts"]).not.toBe("X");
+    expect(env.session).toBe("sess-1");
+    expect(env.event).toBe("real.event");
+    expect(env.level).toBe("info");
+    expect(env.ts).not.toBe("X");
   });
 });
 
 describe("observability — child loggers", () => {
   it("child bindings are merged into every event", () => {
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     __resetLoggerForTest();
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     const child = log.child({ session: "sess-42", tier: "fast" });
@@ -234,38 +234,38 @@ describe("observability — child loggers", () => {
     expect(lines).toHaveLength(2);
     const a = extractEnvelope(lines[0]!);
     const b = extractEnvelope(lines[1]!);
-    expect(a["session"]).toBe("sess-42");
-    expect(a["tier"]).toBe("fast");
-    expect(a["event"]).toBe("x");
-    expect(b["extra"]).toBe("value");
-    expect(b["session"]).toBe("sess-42");
+    expect(a.session).toBe("sess-42");
+    expect(a.tier).toBe("fast");
+    expect(a.event).toBe("x");
+    expect(b.extra).toBe("value");
+    expect(b.session).toBe("sess-42");
   });
 
   it("per-event payload overrides child bindings (later wins)", () => {
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     __resetLoggerForTest();
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     const child = log.child({ session: "sess-A" });
     child.info({ event: "x", session: "sess-B" });
     const env = extractEnvelope(filterLoggerLines(spy.mock.calls)[0]!);
-    expect(env["session"]).toBe("sess-B");
+    expect(env.session).toBe("sess-B");
   });
 
   it("nested children accumulate bindings (grandchild gets parent's keys)", () => {
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     __resetLoggerForTest();
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     const grand = log.child({ a: 1 }).child({ b: 2 });
     grand.info({ event: "x" });
     const env = extractEnvelope(filterLoggerLines(spy.mock.calls)[0]!);
-    expect(env["a"]).toBe(1);
-    expect(env["b"]).toBe(2);
+    expect(env.a).toBe(1);
+    expect(env.b).toBe(2);
   });
 });
 
 describe("observability — convenience helpers (logEvent)", () => {
   it("emits the documented event names", () => {
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     __resetLoggerForTest();
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -332,7 +332,7 @@ describe("observability — convenience helpers (logEvent)", () => {
     // TUI does not bleed raw JSON at the default warn level. Operators
     // opt in via MODEL_ROUTER_LOG_LEVEL=debug when correlating policy
     // stops with the user-facing toast.
-    delete process.env["MODEL_ROUTER_LOG_LEVEL"];
+    delete process.env.MODEL_ROUTER_LOG_LEVEL;
     __resetLoggerForTest();
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -346,7 +346,7 @@ describe("observability — convenience helpers (logEvent)", () => {
     expect(filterLoggerLines(warnSpy.mock.calls)).toHaveLength(0);
 
     // Opt in to debug — now it should fire with the documented payload.
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     __resetLoggerForTest();
     logEvent.routing.nonretryable({
       reason: "model not found",
@@ -356,18 +356,18 @@ describe("observability — convenience helpers (logEvent)", () => {
     const lines = filterLoggerLines(logSpy.mock.calls);
     expect(lines).toHaveLength(1);
     const env = extractEnvelope(lines[0]!);
-    expect(env["event"]).toBe("routing.nonretryable");
-    expect(env["level"]).toBe("debug");
-    expect(env["reason"]).toBe("model not found");
-    expect(env["tier"]).toBe("fast");
-    expect(env["attempt"]).toBe(1);
+    expect(env.event).toBe("routing.nonretryable");
+    expect(env.level).toBe("debug");
+    expect(env.reason).toBe("model not found");
+    expect(env.tier).toBe("fast");
+    expect(env.attempt).toBe(1);
   });
 
   it("routing.retryable emits at debug level (silenced at default warn level)", () => {
     // routing.retryable is the CAUSE event for retryable prompt failures
     // (HTTP 429, transient transport). Fires at debug level because it is
     // noisy under default warn level — opt-in via MODEL_ROUTER_LOG_LEVEL=debug.
-    delete process.env["MODEL_ROUTER_LOG_LEVEL"];
+    delete process.env.MODEL_ROUTER_LOG_LEVEL;
     __resetLoggerForTest();
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     logEvent.routing.retryable({
@@ -379,7 +379,7 @@ describe("observability — convenience helpers (logEvent)", () => {
     expect(filterLoggerLines(logSpy.mock.calls)).toHaveLength(0);
 
     // Opt-in to debug — now it should fire.
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     __resetLoggerForTest();
     logEvent.routing.retryable({
       reason: "rate limited",
@@ -389,11 +389,11 @@ describe("observability — convenience helpers (logEvent)", () => {
     const lines = filterLoggerLines(logSpy.mock.calls);
     expect(lines).toHaveLength(1);
     const env = extractEnvelope(lines[0]!);
-    expect(env["event"]).toBe("routing.retryable");
-    expect(env["level"]).toBe("debug");
-    expect(env["reason"]).toBe("rate limited");
-    expect(env["tier"]).toBe("fast");
-    expect(env["attempt"]).toBe(1);
+    expect(env.event).toBe("routing.retryable");
+    expect(env.level).toBe("debug");
+    expect(env.reason).toBe("rate limited");
+    expect(env.tier).toBe("fast");
+    expect(env.attempt).toBe(1);
   });
 
   it("routing.nonretryable + routing.retryable appear in the documented event vocabulary", () => {
@@ -402,7 +402,7 @@ describe("observability — convenience helpers (logEvent)", () => {
     // catches any future rename silently that would break operator dashboards.
     // SDD: tui-toast-verification — both events fire at debug level after
     // the downgrade, so they both flow through console.log.
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     __resetLoggerForTest();
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -419,7 +419,7 @@ describe("observability — convenience helpers (logEvent)", () => {
   });
 
   it("verification.skipped is debug-level (silenced at default warn level)", () => {
-    delete process.env["MODEL_ROUTER_LOG_LEVEL"];
+    delete process.env.MODEL_ROUTER_LOG_LEVEL;
     __resetLoggerForTest();
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     logEvent.verification.skipped({
@@ -434,7 +434,7 @@ describe("observability — convenience helpers (logEvent)", () => {
     expect(filterLoggerLines(logSpy.mock.calls)).toHaveLength(0);
 
     // Opt-in to debug — now it should fire.
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     __resetLoggerForTest();
     logEvent.verification.skipped({
       sid: "s",

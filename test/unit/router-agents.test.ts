@@ -12,11 +12,7 @@ import {
 } from "../../src/router/agents";
 import type { Preset, RouterConfig } from "../../src/router/config";
 import type { TierConfig } from "../../src/router/config.types";
-import {
-  CLAUDE_ANTI_NARRATION,
-  CLAUDE_TIER_PREFIX,
-  isClaudeModel,
-} from "../../src/router/protocol";
+import { CLAUDE_ANTI_NARRATION, CLAUDE_TIER_PREFIX } from "../../src/router/protocol";
 
 let tmpHome: string;
 let tmpCwd: string;
@@ -25,25 +21,25 @@ let origUSERPROFILE: string | undefined;
 let origCwd: string;
 
 beforeEach(() => {
-  origHOME = process.env["HOME"];
-  origUSERPROFILE = process.env["USERPROFILE"];
+  origHOME = process.env.HOME;
+  origUSERPROFILE = process.env.USERPROFILE;
   origCwd = process.cwd();
   tmpHome = join(
     tmpdir(),
     `oc-agents-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(tmpHome, { recursive: true });
-  process.env["HOME"] = tmpHome;
-  process.env["USERPROFILE"] = tmpHome;
+  process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   tmpCwd = join(tmpHome, "cwd");
   mkdirSync(tmpCwd, { recursive: true });
 });
 
 afterEach(() => {
-  if (origHOME === undefined) delete process.env["HOME"];
-  else process.env["HOME"] = origHOME;
-  if (origUSERPROFILE === undefined) delete process.env["USERPROFILE"];
-  else process.env["USERPROFILE"] = origUSERPROFILE;
+  if (origHOME === undefined) delete process.env.HOME;
+  else process.env.HOME = origHOME;
+  if (origUSERPROFILE === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = origUSERPROFILE;
   process.chdir(origCwd);
   try {
     rmSync(tmpHome, { recursive: true, force: true });
@@ -205,7 +201,7 @@ describe("registerTierAgents", () => {
 
     registerTierAgents(opencodeConfig, preset, cfg);
 
-    const expectedPrefix = `${CLAUDE_TIER_PREFIX["fast"]}\n\n${CLAUDE_ANTI_NARRATION}`;
+    const expectedPrefix = `${CLAUDE_TIER_PREFIX.fast}\n\n${CLAUDE_ANTI_NARRATION}`;
     expect(opencodeConfig.agent?.fast?.prompt).toContain(expectedPrefix);
     expect(opencodeConfig.agent?.fast?.prompt).toContain("original prompt");
   });
@@ -465,14 +461,14 @@ describe("registerTierAgents — five tiers with five Claude prefixes", () => {
   it("applies light Claude prefix to light-tier Claude model", () => {
     const opencodeConfig: Record<string, any> = {};
     registerTierAgents(opencodeConfig, fiveTierPreset, fiveTierCfg);
-    const expectedPrefix = `${CLAUDE_TIER_PREFIX["light"]}\n\n${CLAUDE_ANTI_NARRATION}`;
+    const expectedPrefix = `${CLAUDE_TIER_PREFIX.light}\n\n${CLAUDE_ANTI_NARRATION}`;
     expect(opencodeConfig.agent?.light?.prompt).toContain(expectedPrefix);
   });
 
   it("applies focused Claude prefix to focused-tier Claude model", () => {
     const opencodeConfig: Record<string, any> = {};
     registerTierAgents(opencodeConfig, fiveTierPreset, fiveTierCfg);
-    const expectedPrefix = `${CLAUDE_TIER_PREFIX["focused"]}\n\n${CLAUDE_ANTI_NARRATION}`;
+    const expectedPrefix = `${CLAUDE_TIER_PREFIX.focused}\n\n${CLAUDE_ANTI_NARRATION}`;
     expect(opencodeConfig.agent?.focused?.prompt).toContain(expectedPrefix);
   });
 

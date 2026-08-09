@@ -5,7 +5,7 @@ import type { ModeConfig, Preset, RouterConfig } from "./config";
 // ---------------------------------------------------------------------------
 
 export const getActiveTiers = (cfg: RouterConfig): Preset => {
-  return cfg.presets[cfg.activePreset] ?? Object.values(cfg.presets)[0]!;
+  return cfg.presets[cfg.activePreset] ?? (Object.values(cfg.presets)[0] as Preset);
 };
 
 export const getActiveMode = (cfg: RouterConfig): ModeConfig | undefined => {
@@ -301,7 +301,7 @@ export const buildDoDProtocolSection = (cfg: RouterConfig): string => {
     "[/acceptance]",
     "",
     '- check kinds: testsPass | buildPasses | lintClean | fileExists path=\u2026 | schemaMatch path=\u2026 schema=\u2026 | run command="\u2026" expect=\u2026',
-    "- " + omitLine,
+    `- ${omitLine}`,
     "- A failing DoD causes the result to be rejected and retried/escalated, not silently accepted.",
   ].join("\n");
 };

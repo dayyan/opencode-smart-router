@@ -174,7 +174,7 @@ const runRun = async (
     if (r.timedOut) {
       return { ok: false, reason: `run timed out after ${timeoutMs}ms: ${check.command}` };
     }
-    const out = r.stdout + "\n" + r.stderr;
+    const out = `${r.stdout}\n${r.stderr}`;
     if (check.expect !== undefined && !out.includes(check.expect)) {
       return {
         ok: false,
@@ -225,7 +225,7 @@ const runCommandCheck = async (
       if (r.timedOut) {
         return { ok: false, reason: `${kind} timed out after ${timeoutMs}ms: ${command}` };
       }
-      const out = r.stdout + "\n" + r.stderr;
+      const out = `${r.stdout}\n${r.stderr}`;
       const ok = r.code === 0;
       if (!ok) {
         return {

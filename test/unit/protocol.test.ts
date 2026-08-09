@@ -212,13 +212,13 @@ describe("CLAUDE_TIER_PREFIX — five tier keys", () => {
   });
 
   it("light prefix is a non-empty string", () => {
-    expect(typeof CLAUDE_TIER_PREFIX["light"]).toBe("string");
-    expect(CLAUDE_TIER_PREFIX["light"].length).toBeGreaterThan(0);
+    expect(typeof CLAUDE_TIER_PREFIX.light).toBe("string");
+    expect(CLAUDE_TIER_PREFIX.light.length).toBeGreaterThan(0);
   });
 
   it("focused prefix is a non-empty string", () => {
-    expect(typeof CLAUDE_TIER_PREFIX["focused"]).toBe("string");
-    expect(CLAUDE_TIER_PREFIX["focused"].length).toBeGreaterThan(0);
+    expect(typeof CLAUDE_TIER_PREFIX.focused).toBe("string");
+    expect(CLAUDE_TIER_PREFIX.focused.length).toBeGreaterThan(0);
   });
 });
 

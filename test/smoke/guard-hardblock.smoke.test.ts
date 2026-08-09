@@ -15,7 +15,7 @@
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, it } from "vitest";
 
 const RUN = process.env.RUN_OC_SMOKE === "1";
 const d = RUN ? describe : describe.skip;
@@ -88,7 +88,7 @@ d("guard hard-block smoke", () => {
 
     // 1. Exit code must be 0
     if (result.status !== 0) {
-      const excerpt = (stdout + "\n" + stderr).slice(0, 600);
+      const excerpt = `${stdout}\n${stderr}`.slice(0, 600);
       throw new Error(`opencode exited with code ${result.status}.\nExcerpt:\n${excerpt}`);
     }
 

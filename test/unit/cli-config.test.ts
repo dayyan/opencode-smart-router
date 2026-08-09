@@ -566,8 +566,8 @@ describe("resolveGlobalConfigPath", () => {
   });
 
   it("prefers $OPENCODE_CONFIG_DIR over $HOME/.config/opencode", () => {
-    process.env["OPENCODE_CONFIG_DIR"] = "/etc/opencode-cli-test";
-    delete process.env["HOME"];
+    process.env.OPENCODE_CONFIG_DIR = "/etc/opencode-cli-test";
+    delete process.env.HOME;
     const fs = createMemFs({
       files: {
         "/etc/opencode-cli-test/opencode.json": "{}",
@@ -581,9 +581,9 @@ describe("resolveGlobalConfigPath", () => {
   });
 
   it("prefers .json over .jsonc when both exist", () => {
-    delete process.env["OPENCODE_CONFIG_DIR"];
-    delete process.env["XDG_CONFIG_HOME"];
-    process.env["HOME"] = "/home/me";
+    delete process.env.OPENCODE_CONFIG_DIR;
+    delete process.env.XDG_CONFIG_HOME;
+    process.env.HOME = "/home/me";
     const fs = createMemFs({
       files: {
         "/home/me/.config/opencode/opencode.json": "{}",
@@ -596,8 +596,8 @@ describe("resolveGlobalConfigPath", () => {
   });
 
   it("falls back to .jsonc when .json does not exist", () => {
-    delete process.env["OPENCODE_CONFIG_DIR"];
-    process.env["HOME"] = "/home/me";
+    delete process.env.OPENCODE_CONFIG_DIR;
+    process.env.HOME = "/home/me";
     const fs = createMemFs({
       files: {
         "/home/me/.config/opencode/opencode.jsonc": "/* hi */ {}",
@@ -609,8 +609,8 @@ describe("resolveGlobalConfigPath", () => {
   });
 
   it("returns the default .json path with existed=false when nothing exists", () => {
-    delete process.env["OPENCODE_CONFIG_DIR"];
-    process.env["HOME"] = "/home/me";
+    delete process.env.OPENCODE_CONFIG_DIR;
+    process.env.HOME = "/home/me";
     const fs = createMemFs();
     const resolved = resolveGlobalConfigPath(fs);
     expect(resolved.existed).toBe(false);
@@ -621,8 +621,8 @@ describe("resolveGlobalConfigPath", () => {
   });
 
   it("uses OPENCODE_CONFIG_DIR for the target even when no file exists", () => {
-    process.env["OPENCODE_CONFIG_DIR"] = "/custom/dir";
-    delete process.env["HOME"];
+    process.env.OPENCODE_CONFIG_DIR = "/custom/dir";
+    delete process.env.HOME;
     const fs = createMemFs();
     const resolved = resolveGlobalConfigPath(fs);
     expect(resolved.path).toBe("/custom/dir/opencode.json");
@@ -630,9 +630,9 @@ describe("resolveGlobalConfigPath", () => {
   });
 
   it("ignores empty $OPENCODE_CONFIG_DIR and falls back to $HOME", () => {
-    process.env["OPENCODE_CONFIG_DIR"] = "   ";
-    process.env["HOME"] = "/home/me";
-    delete process.env["XDG_CONFIG_HOME"];
+    process.env.OPENCODE_CONFIG_DIR = "   ";
+    process.env.HOME = "/home/me";
+    delete process.env.XDG_CONFIG_HOME;
     const fs = createMemFs({
       files: { "/home/me/.config/opencode/opencode.json": "{}" },
     });
@@ -657,8 +657,8 @@ describe("loadGlobalConfig", () => {
   });
 
   it("returns config={} and existed=false when the file is missing", () => {
-    delete process.env["OPENCODE_CONFIG_DIR"];
-    process.env["HOME"] = "/home/me";
+    delete process.env.OPENCODE_CONFIG_DIR;
+    process.env.HOME = "/home/me";
     const fs = createMemFs();
     const loaded = loadGlobalConfig(fs);
     expect(loaded.existed).toBe(false);
@@ -667,8 +667,8 @@ describe("loadGlobalConfig", () => {
   });
 
   it("parses an existing .json file", () => {
-    delete process.env["OPENCODE_CONFIG_DIR"];
-    process.env["HOME"] = "/home/me";
+    delete process.env.OPENCODE_CONFIG_DIR;
+    process.env.HOME = "/home/me";
     const fs = createMemFs({
       files: {
         "/home/me/.config/opencode/opencode.json": '{"plugin":["alpha","beta"]}',
@@ -681,8 +681,8 @@ describe("loadGlobalConfig", () => {
   });
 
   it("strips comments when reading an existing .jsonc file", () => {
-    delete process.env["OPENCODE_CONFIG_DIR"];
-    process.env["HOME"] = "/home/me";
+    delete process.env.OPENCODE_CONFIG_DIR;
+    process.env.HOME = "/home/me";
     const fs = createMemFs({
       files: {
         "/home/me/.config/opencode/opencode.jsonc": `{
@@ -697,8 +697,8 @@ describe("loadGlobalConfig", () => {
   });
 
   it("uses OPENCODE_CONFIG_DIR when set, regardless of $HOME", () => {
-    process.env["OPENCODE_CONFIG_DIR"] = "/custom/opencode-test";
-    delete process.env["HOME"];
+    process.env.OPENCODE_CONFIG_DIR = "/custom/opencode-test";
+    delete process.env.HOME;
     const fs = createMemFs({
       files: { "/custom/opencode-test/opencode.json": '{"k":1}' },
     });
@@ -708,8 +708,8 @@ describe("loadGlobalConfig", () => {
   });
 
   it("returns parseError when existing config is malformed JSON", () => {
-    delete process.env["OPENCODE_CONFIG_DIR"];
-    process.env["HOME"] = "/home/me";
+    delete process.env.OPENCODE_CONFIG_DIR;
+    process.env.HOME = "/home/me";
     const fs = createMemFs({
       files: {
         "/home/me/.config/opencode/opencode.json": '{"broken": invalid}',
@@ -740,14 +740,14 @@ describe("resolveConfigDir (env precedence)", () => {
   });
 
   it("uses OPENCODE_CONFIG_DIR when set", () => {
-    process.env["OPENCODE_CONFIG_DIR"] = "/etc/opencode-cli-test";
-    delete process.env["HOME"];
+    process.env.OPENCODE_CONFIG_DIR = "/etc/opencode-cli-test";
+    delete process.env.HOME;
     expect(resolveConfigDir()).toBe("/etc/opencode-cli-test");
   });
 
   it("falls back to $HOME/.config/opencode when OPENCODE_CONFIG_DIR is unset", () => {
-    delete process.env["OPENCODE_CONFIG_DIR"];
-    process.env["HOME"] = "/home/me";
+    delete process.env.OPENCODE_CONFIG_DIR;
+    process.env.HOME = "/home/me";
     expect(resolveConfigDir()).toBe("/home/me/.config/opencode");
   });
 });

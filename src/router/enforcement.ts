@@ -52,7 +52,7 @@ export const resolveEnforcementMode = (args: {
   let mode: EnforcementMode;
 
   if (args.tier !== undefined && enf?.perTier?.[args.tier] !== undefined) {
-    mode = enf.perTier[args.tier]!;
+    mode = enf.perTier[args.tier] as EnforcementMode;
   } else {
     mode = base;
   }

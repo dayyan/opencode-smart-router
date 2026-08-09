@@ -126,8 +126,8 @@ describe("Layer-3 escalation ladder wiring", () => {
     expect(result).toContain("[router ✓ accepted:");
     expect(result).not.toContain("status: unmet");
     expect(producerCalls.length).toBe(2);
-    expect(producerCalls[1]!.tier).toBe("fast");
-    expect(producerCalls[1]!.text).toContain("[router escalation]");
+    expect(producerCalls[1]?.tier).toBe("fast");
+    expect(producerCalls[1]?.text).toContain("[router escalation]");
   });
 
   // -------------------------------------------------------------------------
@@ -162,7 +162,7 @@ describe("Layer-3 escalation ladder wiring", () => {
     // With 4-cost ceiling and firstAttemptCost=1, medium (cost=5) exceeds ceiling.
     // The 4th call (light) consumes the pass verdict and accepts.
     expect(producerCalls.length).toBe(4);
-    expect(producerCalls[3]!.tier).toBe("light");
+    expect(producerCalls[3]?.tier).toBe("light");
   });
 
   // -------------------------------------------------------------------------

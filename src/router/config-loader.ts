@@ -65,9 +65,10 @@ export const readMergedConfig = async (opts: { cwd: string }): Promise<RouterCon
     },
   ];
 
-  const bundled = await readConfigLayer(layers[0]!);
-  const global = await readConfigLayer(layers[1]!);
-  const local = await readConfigLayer(layers[2]!);
+  const [bundledLayer, globalLayer, localLayer] = layers as [ConfigLayer, ConfigLayer, ConfigLayer];
+  const bundled = await readConfigLayer(bundledLayer);
+  const global = await readConfigLayer(globalLayer);
+  const local = await readConfigLayer(localLayer);
 
   const mergedManual = deepMergeConfig(deepMergeConfig(bundled, global), local);
   const cfg = validateConfig(mergedManual);

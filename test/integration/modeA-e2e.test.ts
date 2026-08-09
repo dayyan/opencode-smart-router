@@ -134,9 +134,9 @@ describe("Mode A end-to-end enforcement loop", () => {
     expect(result).not.toContain("status: unmet");
     // 5-tier: fast fail -> light fail -> light pass (3 calls, cost ceiling blocks medium)
     expect(producerCalls.length).toBe(3);
-    expect(producerCalls[2]!.tier).toBe("light");
-    expect(producerCalls[1]!.text).toContain("[router escalation]");
-    expect(producerCalls[2]!.text).toContain("[router escalation]");
+    expect(producerCalls[2]?.tier).toBe("light");
+    expect(producerCalls[1]?.text).toContain("[router escalation]");
+    expect(producerCalls[2]?.text).toContain("[router escalation]");
   });
 
   // -------------------------------------------------------------------------
@@ -161,7 +161,7 @@ describe("Mode A end-to-end enforcement loop", () => {
 
     expect(result).toContain("[router ✓ accepted:");
     expect(producerCalls.length).toBe(1);
-    expect(producerCalls[0]!.text).not.toContain("[router escalation]");
+    expect(producerCalls[0]?.text).not.toContain("[router escalation]");
   });
 
   // -------------------------------------------------------------------------

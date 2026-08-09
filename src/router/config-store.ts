@@ -197,7 +197,7 @@ const logConfigRefresh = (payload: ConfigRefreshLog): void => {
   // requirement is satisfied by the public method (isStale/loadedAtMs) plus
   // the structured payload shape itself. Operators can enable verbose
   // refresh logs by setting MODEL_ROUTER_LOG=1.
-  if (process.env["MODEL_ROUTER_LOG"] !== "1") return;
+  if (process.env.MODEL_ROUTER_LOG !== "1") return;
   const stream = payload.outcome === "stale_serve" ? "stderr" : "stdout";
   const line = `[model-router][config-refresh] ${JSON.stringify(payload)}`;
   if (stream === "stderr") {

@@ -125,13 +125,13 @@ describe("tiers assembly — assembler invocation", () => {
     // The tmpPath is printed in stdout
     const tmpPathMatch = stdout.match(/wrote (.+) \(/);
     expect(tmpPathMatch).not.toBeNull();
-    expect(existsSync(tmpPathMatch![1]!)).toBe(true);
+    expect(existsSync(tmpPathMatch?.[1]!)).toBe(true);
   });
 
   it("the assembled tiers.json is valid JSON and a non-null object", () => {
     const { stdout } = runAssembler();
     const tmpPathMatch = stdout.match(/wrote (.+) \(/);
-    const tmpPath = tmpPathMatch![1]!;
+    const tmpPath = tmpPathMatch?.[1]!;
     const parsed = JSON.parse(readFileSync(tmpPath, "utf-8"));
     expect(typeof parsed).toBe("object");
     expect(parsed).not.toBeNull();
@@ -141,7 +141,7 @@ describe("tiers assembly — assembler invocation", () => {
   it("the assembled tiers.json has exactly the expected top-level key order", () => {
     const { stdout } = runAssembler();
     const tmpPathMatch = stdout.match(/wrote (.+) \(/);
-    const tmpPath = tmpPathMatch![1]!;
+    const tmpPath = tmpPathMatch?.[1]!;
     const parsed = JSON.parse(readFileSync(tmpPath, "utf-8")) as Record<string, unknown>;
     const actual = Object.keys(parsed);
     expect(actual).toEqual([...EXPECTED_KEY_ORDER]);
@@ -150,7 +150,7 @@ describe("tiers assembly — assembler invocation", () => {
   it("every part-key is present in the assembled output (no silent drops)", () => {
     const { stdout } = runAssembler();
     const tmpPathMatch = stdout.match(/wrote (.+) \(/);
-    const tmpPath = tmpPathMatch![1]!;
+    const tmpPath = tmpPathMatch?.[1]!;
     const assembled = JSON.parse(readFileSync(tmpPath, "utf-8")) as Record<string, unknown>;
     for (const part of PARTS) {
       for (const key of part.expectedKeys) {
@@ -165,7 +165,7 @@ describe("tiers assembly — assembler invocation", () => {
   it("all expected top-level keys are present in the assembled output", () => {
     const { stdout } = runAssembler();
     const tmpPathMatch = stdout.match(/wrote (.+) \(/);
-    const tmpPath = tmpPathMatch![1]!;
+    const tmpPath = tmpPathMatch?.[1]!;
     const assembled = JSON.parse(readFileSync(tmpPath, "utf-8")) as Record<string, unknown>;
     for (const key of EXPECTED_KEY_ORDER) {
       expect(assembled[key]).toBeDefined();
@@ -190,16 +190,16 @@ describe("tiers assembly — runtime contract", () => {
     const tmpHome = mkdtempSync(join(tmpdir(), "tiers-assembly-"));
     const tmpBundled = join(tmpHome, "tiers.json");
     const bundled = JSON.parse(readFileSync(ASSEMBLED_PATH, "utf-8")) as Record<string, unknown>;
-    writeFileSync(tmpBundled, JSON.stringify(bundled, null, 2) + "\n", "utf-8");
+    writeFileSync(tmpBundled, `${JSON.stringify(bundled, null, 2)}\n`, "utf-8");
 
     // Compute the parsed shape we expect loadConfig to see: the bundled
     // file (the temp one) plus the global/local layers (none present in
     // tmpHome). Since the global file is at ~/.config/... we point HOME
     // to the temp dir.
-    const priorHome = process.env["HOME"];
-    const priorConfigDir = process.env["XDG_CONFIG_HOME"];
-    process.env["HOME"] = tmpHome;
-    delete process.env["XDG_CONFIG_HOME"];
+    const priorHome = process.env.HOME;
+    const priorConfigDir = process.env.XDG_CONFIG_HOME;
+    process.env.HOME = tmpHome;
+    delete process.env.XDG_CONFIG_HOME;
 
     try {
       // Re-import the config module fresh in this test's process so the
@@ -213,19 +213,19 @@ describe("tiers assembly — runtime contract", () => {
 
       // And: the per-part values survive intact. spot-check a few
       // structural invariants.
-      expect(typeof parsed["activePreset"]).toBe("string");
-      expect(typeof parsed["defaultTier"]).toBe("string");
-      expect(typeof parsed["tierCaps"]).toBe("object");
-      expect(typeof parsed["presets"]).toBe("object");
-      expect(typeof parsed["tierPrompts"]).toBe("object");
-      expect(typeof parsed["taskPatterns"]).toBe("object");
-      expect(typeof parsed["modes"]).toBe("object");
-      expect(typeof parsed["fallback"]).toBe("object");
-      expect(Array.isArray(parsed["rules"])).toBe(true);
+      expect(typeof parsed.activePreset).toBe("string");
+      expect(typeof parsed.defaultTier).toBe("string");
+      expect(typeof parsed.tierCaps).toBe("object");
+      expect(typeof parsed.presets).toBe("object");
+      expect(typeof parsed.tierPrompts).toBe("object");
+      expect(typeof parsed.taskPatterns).toBe("object");
+      expect(typeof parsed.modes).toBe("object");
+      expect(typeof parsed.fallback).toBe("object");
+      expect(Array.isArray(parsed.rules)).toBe(true);
     } finally {
-      if (priorHome !== undefined) process.env["HOME"] = priorHome;
-      else delete process.env["HOME"];
-      if (priorConfigDir !== undefined) process.env["XDG_CONFIG_HOME"] = priorConfigDir;
+      if (priorHome !== undefined) process.env.HOME = priorHome;
+      else delete process.env.HOME;
+      if (priorConfigDir !== undefined) process.env.XDG_CONFIG_HOME = priorConfigDir;
       try {
         rmSync(tmpHome, { recursive: true, force: true });
       } catch {
@@ -262,12 +262,12 @@ describe("tiers assembly — build script safety checks", () => {
       for (const part of PARTS) {
         const data = JSON.parse(readFileSync(part.path, "utf-8")) as Record<string, unknown>;
         const dest = join(tmpDir, part.path.split("/").pop()!);
-        writeFileSync(dest, JSON.stringify(data, null, 2) + "\n", "utf-8");
+        writeFileSync(dest, `${JSON.stringify(data, null, 2)}\n`, "utf-8");
       }
       const roguePath = join(tmpDir, "prompts.json");
       const rogue = JSON.parse(readFileSync(roguePath, "utf-8")) as Record<string, unknown>;
-      rogue["rogueKey"] = "should fail the merge plan check";
-      writeFileSync(roguePath, JSON.stringify(rogue, null, 2) + "\n", "utf-8");
+      rogue.rogueKey = "should fail the merge plan check";
+      writeFileSync(roguePath, `${JSON.stringify(rogue, null, 2)}\n`, "utf-8");
 
       // We can't redirect the assembler's repoRoot easily without
       // editing the script. Instead, assert the SCRIPT TEXT itself

@@ -43,16 +43,16 @@ let origUSERPROFILE: string | undefined;
 let origCwd: string;
 
 beforeEach(() => {
-  origHOME = process.env["HOME"];
-  origUSERPROFILE = process.env["USERPROFILE"];
+  origHOME = process.env.HOME;
+  origUSERPROFILE = process.env.USERPROFILE;
   origCwd = process.cwd();
   tmpHome = join(
     tmpdir(),
     `oc-runtime-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(tmpHome, { recursive: true });
-  process.env["HOME"] = tmpHome;
-  process.env["USERPROFILE"] = tmpHome;
+  process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   tmpCwd = join(tmpHome, "cwd");
   mkdirSync(tmpCwd, { recursive: true });
   executeDelegateMock.mockReset();
@@ -60,10 +60,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (origHOME === undefined) delete process.env["HOME"];
-  else process.env["HOME"] = origHOME;
-  if (origUSERPROFILE === undefined) delete process.env["USERPROFILE"];
-  else process.env["USERPROFILE"] = origUSERPROFILE;
+  if (origHOME === undefined) delete process.env.HOME;
+  else process.env.HOME = origHOME;
+  if (origUSERPROFILE === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = origUSERPROFILE;
   process.chdir(origCwd);
   try {
     rmSync(tmpHome, { recursive: true, force: true });
@@ -159,12 +159,12 @@ describe("assembleRuntimeHooks — hook shape", () => {
     expect(typeof hooks["tool.execute.before"]).toBe("function");
     expect(typeof hooks["tool.execute.after"]).toBe("function");
     expect(typeof hooks["experimental.text.complete"]).toBe("function");
-    expect(typeof hooks["event"]).toBe("function");
-    expect(typeof hooks["config"]).toBe("function");
+    expect(typeof hooks.event).toBe("function");
+    expect(typeof hooks.config).toBe("function");
     expect(typeof hooks["experimental.chat.system.transform"]).toBe("function");
     expect(typeof hooks["command.execute.before"]).toBe("function");
-    expect(typeof hooks["dispose"]).toBe("function");
-    expect(typeof hooks["tool"]).toBe("object");
+    expect(typeof hooks.dispose).toBe("function");
+    expect(typeof hooks.tool).toBe("object");
   });
 });
 
@@ -175,14 +175,14 @@ describe("assembleRuntimeHooks — hook shape", () => {
 describe("assembleRuntimeHooks — delegate tool gating", () => {
   it("omits the delegate tool when enableDelegateTool is false", () => {
     const hooks = assembleRuntimeHooks(makeCtx(), makePreset(), false);
-    expect("delegate" in (hooks["tool"] as object)).toBe(false);
+    expect("delegate" in (hooks.tool as object)).toBe(false);
   });
 
   it("includes the delegate tool when enableDelegateTool is true", () => {
     const hooks = assembleRuntimeHooks(makeCtx(), makePreset(), true);
-    const toolObj = hooks["tool"] as Record<string, unknown>;
+    const toolObj = hooks.tool as Record<string, unknown>;
     expect("delegate" in toolObj).toBe(true);
-    const delegate = toolObj["delegate"] as Record<string, unknown>;
+    const delegate = toolObj.delegate as Record<string, unknown>;
     expect(typeof delegate.description).toBe("string");
     expect(delegate.args as Record<string, unknown>).toHaveProperty("task");
   });
@@ -190,12 +190,9 @@ describe("assembleRuntimeHooks — delegate tool gating", () => {
   it("delegate tool execute calls executeDelegate with ctx, args, sessionID, abort", async () => {
     executeDelegateMock.mockResolvedValue("[router] accepted");
     const hooks = assembleRuntimeHooks(makeCtx(), makePreset(), true);
-    const delegate = (hooks["tool"] as Record<string, unknown>)["delegate"] as Record<
-      string,
-      unknown
-    >;
+    const delegate = (hooks.tool as Record<string, unknown>).delegate as Record<string, unknown>;
     const executeFn = delegate.execute as (...args: unknown[]) => Promise<string>;
-    const ctx = makeCtx();
+    const _ctx = makeCtx();
     const args = { task: "say hello", tier: "fast" };
     const fakeAbort = { aborted: false } as any;
     const fakeContext = { sessionID: "sess_test", abort: fakeAbort };
@@ -203,7 +200,7 @@ describe("assembleRuntimeHooks — delegate tool gating", () => {
     await executeFn(args, fakeContext);
 
     expect(executeDelegateMock).toHaveBeenCalledOnce();
-    const [[callCtx, callArgs, callSid, callAbort]] = executeDelegateMock.mock.calls;
+    const [[_callCtx, callArgs, callSid, callAbort]] = executeDelegateMock.mock.calls;
     expect(callSid).toBe("sess_test");
     expect(callArgs).toEqual(args);
     expect(callAbort).toBe(fakeAbort);

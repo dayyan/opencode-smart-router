@@ -127,7 +127,7 @@ export const writeState = async (patch: Partial<RouterState>): Promise<void> => 
   const p = statePath();
   await mkdir(dirname(p), { recursive: true });
   const tmp = `${p}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  await writeFile(tmp, JSON.stringify(state, null, 2) + "\n", "utf-8");
+  await writeFile(tmp, `${JSON.stringify(state, null, 2)}\n`, "utf-8");
   await rename(tmp, p);
 };
 

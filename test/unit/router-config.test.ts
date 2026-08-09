@@ -24,19 +24,19 @@ let origCwd: string;
 let tmpCwd: string;
 
 beforeEach(async () => {
-  origHOME = process.env["HOME"];
-  origUSERPROFILE = process.env["USERPROFILE"];
-  origXDG_CONFIG_HOME = process.env["XDG_CONFIG_HOME"];
+  origHOME = process.env.HOME;
+  origUSERPROFILE = process.env.USERPROFILE;
+  origXDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
   tmpHome = join(
     tmpdir(),
     `oc-test-cfg-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(tmpHome, { recursive: true });
-  process.env["HOME"] = tmpHome;
-  process.env["USERPROFILE"] = tmpHome;
+  process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   // Tests must exercise the legacy `$HOME/.config/...` fallback so they
   // do not leak across users who have `XDG_CONFIG_HOME` set globally.
-  delete process.env["XDG_CONFIG_HOME"];
+  delete process.env.XDG_CONFIG_HOME;
 
   origCwd = process.cwd();
   tmpCwd = join(tmpHome, "cwd");
@@ -49,12 +49,12 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  if (origHOME === undefined) delete process.env["HOME"];
-  else process.env["HOME"] = origHOME;
-  if (origUSERPROFILE === undefined) delete process.env["USERPROFILE"];
-  else process.env["USERPROFILE"] = origUSERPROFILE;
-  if (origXDG_CONFIG_HOME === undefined) delete process.env["XDG_CONFIG_HOME"];
-  else process.env["XDG_CONFIG_HOME"] = origXDG_CONFIG_HOME;
+  if (origHOME === undefined) delete process.env.HOME;
+  else process.env.HOME = origHOME;
+  if (origUSERPROFILE === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = origUSERPROFILE;
+  if (origXDG_CONFIG_HOME === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = origXDG_CONFIG_HOME;
   process.chdir(origCwd);
   const { __resetPathsForTest } = await import("../../src/router/config-paths");
   __resetPathsForTest();
@@ -240,8 +240,8 @@ describe("Layered config — bundled-only (no overrides)", () => {
     const cfg = await readMergedConfig({ cwd: process.cwd() });
     // Bundled tiers.json sets activePreset to "multi-provider" by default.
     expect(cfg.activePreset).toBe("multi-provider");
-    expect(cfg.presets["anthropic"]).toBeDefined();
-    expect(cfg.presets["openai"]).toBeDefined();
+    expect(cfg.presets.anthropic).toBeDefined();
+    expect(cfg.presets.openai).toBeDefined();
   });
 });
 
@@ -252,8 +252,8 @@ describe("Layered config — precedence table", () => {
     const cfg = await readMergedConfig({ cwd: process.cwd() });
     expect(cfg.activePreset).toBe("openai");
     // Bundled's anthropic preset is unrelated and must survive.
-    expect(cfg.presets["anthropic"]).toBeDefined();
-    expect(cfg.presets["google"]).toBeDefined();
+    expect(cfg.presets.anthropic).toBeDefined();
+    expect(cfg.presets.google).toBeDefined();
   });
 
   it("local scalar overrides bundled scalar when global is absent", async () => {
@@ -261,7 +261,7 @@ describe("Layered config — precedence table", () => {
     stageLocal({ activePreset: "github-copilot" });
     const cfg = await readMergedConfig({ cwd: process.cwd() });
     expect(cfg.activePreset).toBe("github-copilot");
-    expect(cfg.presets["anthropic"]).toBeDefined();
+    expect(cfg.presets.anthropic).toBeDefined();
   });
 
   it("local wins over global when both present", async () => {
@@ -293,7 +293,7 @@ describe("Layered config — precedence table", () => {
       },
     });
     const cfg = await readMergedConfig({ cwd: process.cwd() });
-    const fast = cfg.presets["anthropic"]?.["fast"];
+    const fast = cfg.presets.anthropic?.fast;
     expect(fast?.whenToUse).toEqual(["only-this-one"]);
   });
 
@@ -311,7 +311,7 @@ describe("Layered config — precedence table", () => {
     });
     clearLocal();
     const cfg = await readMergedConfig({ cwd: process.cwd() });
-    const fast = cfg.presets["anthropic"]?.["fast"];
+    const fast = cfg.presets.anthropic?.fast;
     expect(fast?.whenToUse).toEqual(["override-1", "override-2"]);
   });
 
@@ -322,8 +322,8 @@ describe("Layered config — precedence table", () => {
     });
     clearLocal();
     const cfg = await readMergedConfig({ cwd: process.cwd() });
-    expect(cfg.tierPrompts?.["fast"]).toBeDefined();
-    expect(cfg.tierPrompts?.["extra"]).toBe("global-only prompt");
+    expect(cfg.tierPrompts?.fast).toBeDefined();
+    expect(cfg.tierPrompts?.extra).toBe("global-only prompt");
   });
 
   it("nested-object merge: scalar override on a nested key wins, siblings preserved", async () => {
@@ -340,11 +340,11 @@ describe("Layered config — precedence table", () => {
     });
     clearLocal();
     const cfg = await readMergedConfig({ cwd: process.cwd() });
-    const fast = cfg.presets["anthropic"]?.["fast"];
+    const fast = cfg.presets.anthropic?.fast;
     expect(fast?.model).toBe("different/model");
     // Other anthropic tiers must survive the global override.
-    expect(cfg.presets["anthropic"]?.["medium"]).toBeDefined();
-    expect(cfg.presets["anthropic"]?.["heavy"]).toBeDefined();
+    expect(cfg.presets.anthropic?.medium).toBeDefined();
+    expect(cfg.presets.anthropic?.heavy).toBeDefined();
   });
 
   it("nested-object merge: object override on a nested key wins, siblings preserved", async () => {
@@ -352,9 +352,9 @@ describe("Layered config — precedence table", () => {
     stageGlobal({ tierCaps: { fast: 99 } });
     clearLocal();
     const cfg = await readMergedConfig({ cwd: process.cwd() });
-    expect(cfg.tierCaps?.["fast"]).toBe(99);
-    expect(cfg.tierCaps?.["medium"]).toBeDefined();
-    expect(cfg.tierCaps?.["heavy"]).toBeDefined();
+    expect(cfg.tierCaps?.fast).toBe(99);
+    expect(cfg.tierCaps?.medium).toBeDefined();
+    expect(cfg.tierCaps?.heavy).toBeDefined();
   });
 });
 
@@ -386,7 +386,7 @@ describe("Layered config — absence cases", () => {
     const cfg = await readMergedConfig({ cwd: process.cwd() });
     expect(cfg.activePreset).toBe("openai");
     // Bundled's anthropic preset remains intact.
-    expect(cfg.presets["anthropic"]).toBeDefined();
+    expect(cfg.presets.anthropic).toBeDefined();
   });
 
   it("an empty-object global override is a no-op merge", async () => {
@@ -430,7 +430,7 @@ describe("Layered config — error cases", () => {
     // read fails with ENOENT. The bundled file is restored in the finally
     // block even if the assertion throws, so other tests stay green.
     const bundledPath = realConfigPath();
-    const backupPath = bundledPath + ".bak-test";
+    const backupPath = `${bundledPath}.bak-test`;
     renameSync(bundledPath, backupPath);
     try {
       await expect(readMergedConfig({ cwd: process.cwd() })).rejects.toThrow(/bundled/);
@@ -622,7 +622,7 @@ describe("Layered config — state overlay", () => {
     const cfg = await readMergedConfig({ cwd: process.cwd() });
     expect(cfg.activePreset).toBe("openai");
     // Manual nested override must survive the state overlay.
-    expect(cfg.presets["anthropic"]?.["fast"]?.whenToUse).toEqual(["only-this"]);
+    expect(cfg.presets.anthropic?.fast?.whenToUse).toEqual(["only-this"]);
   });
 });
 

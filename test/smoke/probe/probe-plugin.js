@@ -14,7 +14,7 @@ const LOG_FILE = path.join(LOG_DIR, "probe-events.log");
 function appendLog(obj) {
   try {
     fs.mkdirSync(LOG_DIR, { recursive: true });
-    fs.appendFileSync(LOG_FILE, JSON.stringify(obj) + "\n", "utf8");
+    fs.appendFileSync(LOG_FILE, `${JSON.stringify(obj)}\n`, "utf8");
   } catch {
     /* best-effort: never crash */
   }
@@ -57,7 +57,7 @@ export const ProbePlugin = async () => {
       probe_block_me: probeBlockMe,
     },
 
-    "tool.execute.before": async (input, output) => {
+    "tool.execute.before": async (input, _output) => {
       appendLog({
         ev: "before",
         tool: input?.tool,
@@ -70,7 +70,7 @@ export const ProbePlugin = async () => {
       }
     },
 
-    "tool.execute.after": async (input, output) => {
+    "tool.execute.after": async (input, _output) => {
       appendLog({
         ev: "after",
         tool: input?.tool,

@@ -141,19 +141,19 @@ export const parseGraderVerdict = (text: string): { pass: boolean; reasons: stri
       const result = JSON.parse(raw) as unknown;
       if (typeof result === "object" && result !== null) {
         const r = result as Record<string, unknown>;
-        if (typeof r["pass"] === "boolean") {
-          const reasons = Array.isArray(r["reasons"])
-            ? r["reasons"].filter((item): item is string => typeof item === "string")
+        if (typeof r.pass === "boolean") {
+          const reasons = Array.isArray(r.reasons)
+            ? r.reasons.filter((item): item is string => typeof item === "string")
             : [];
-          return { pass: r["pass"] as boolean, reasons };
+          return { pass: r.pass as boolean, reasons };
         }
         // Fallback: look for verdict field (used by @heavy models with reasoning)
-        if (typeof r["verdict"] === "string") {
-          const verdictStr = r["verdict"].toLowerCase();
+        if (typeof r.verdict === "string") {
+          const verdictStr = r.verdict.toLowerCase();
           const approved = /approv|pass|accept|yes/i.test(verdictStr);
-          const reasons = Array.isArray(r["reasons"])
-            ? r["reasons"].filter((item): item is string => typeof item === "string")
-            : [r["verdict"] as string];
+          const reasons = Array.isArray(r.reasons)
+            ? r.reasons.filter((item): item is string => typeof item === "string")
+            : [r.verdict as string];
           return { pass: approved, reasons };
         }
       }
@@ -194,7 +194,7 @@ export const runChecker = async (input: CheckerInput, deps: CheckerDeps): Promis
     return {
       pass: false,
       method: "checker",
-      reasons: [scrubText("grader dispatch failed: " + String(err))],
+      reasons: [scrubText(`grader dispatch failed: ${String(err)}`)],
       errored: true,
     };
   }
@@ -230,6 +230,6 @@ export const runChecker = async (input: CheckerInput, deps: CheckerDeps): Promis
     pass: parsed.pass === true,
     method: "checker",
     reasons: parsed.reasons.map(scrubText),
-    evidence: scrubText("grader=" + graderTier),
+    evidence: scrubText(`grader=${graderTier}`),
   };
 };

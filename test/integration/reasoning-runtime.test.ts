@@ -37,7 +37,7 @@ const makeCtx = (dir: string) => {
     client: {
       session: {
         create: async () => ({
-          data: { id: "sess_" + Math.random().toString(36).slice(2) },
+          data: { id: `sess_${Math.random().toString(36).slice(2)}` },
         }),
         prompt: async () => ({
           data: { parts: [{ type: "text", text: "" }] },

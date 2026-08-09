@@ -668,7 +668,7 @@ describe("runMain — config dispatch", () => {
   it("strict parseArgs accepts --target <global|local>", async () => {
     let captured = "";
     const errSpy = vi.spyOn(console, "error").mockImplementation((msg) => {
-      captured += String(msg) + "\n";
+      captured += `${String(msg)}\n`;
     });
     try {
       const result = await runMain([

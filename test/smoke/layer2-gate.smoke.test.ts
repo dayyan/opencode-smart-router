@@ -127,7 +127,7 @@ d("layer-2 acceptance gate smoke", () => {
 
       // ── exit-code check ──────────────────────────────────────────────────
       if (result.status !== 0) {
-        const excerpt = (stdout + "\n" + stderr).slice(0, 600);
+        const excerpt = `${stdout}\n${stderr}`.slice(0, 600);
         throw new Error(`opencode exited with code ${result.status}.\nExcerpt:\n${excerpt}`);
       }
 

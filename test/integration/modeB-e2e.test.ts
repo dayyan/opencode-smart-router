@@ -164,8 +164,8 @@ describe("Mode B end-to-end (plan-annotation)", () => {
     expect(result).toContain("[router ✓ accepted:");
     // 5-tier: fast fail -> light fail -> light pass (cost ceiling blocks medium)
     expect(producerCalls.length).toBe(3);
-    expect(producerCalls[2]!.tier).toBe("light");
-    expect(producerCalls[1]!.text).toContain("[router escalation]");
+    expect(producerCalls[2]?.tier).toBe("light");
+    expect(producerCalls[1]?.text).toContain("[router escalation]");
   });
 
   // -------------------------------------------------------------------------
@@ -183,11 +183,11 @@ describe("Mode B end-to-end (plan-annotation)", () => {
     expect(a).not.toBeNull();
     expect(d).not.toBeNull();
 
-    expect(a!.kind).toBe(d!.kind);
-    expect(JSON.stringify(a!.checks)).toBe(JSON.stringify(d!.checks));
-    expect(JSON.stringify(a!.criteria)).toBe(JSON.stringify(d!.criteria));
-    expect(a!.deliverable).toBe(d!.deliverable);
-    expect(a!.source).toBe("annotation");
-    expect(d!.source).toBe("explicit");
+    expect(a?.kind).toBe(d?.kind);
+    expect(JSON.stringify(a?.checks)).toBe(JSON.stringify(d?.checks));
+    expect(JSON.stringify(a?.criteria)).toBe(JSON.stringify(d?.criteria));
+    expect(a?.deliverable).toBe(d?.deliverable);
+    expect(a?.source).toBe("annotation");
+    expect(d?.source).toBe("explicit");
   });
 });

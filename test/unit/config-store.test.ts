@@ -29,9 +29,9 @@ let origXDG_CONFIG_HOME: string | undefined;
 let origCwd: string;
 
 beforeEach(async () => {
-  origHOME = process.env["HOME"];
-  origUSERPROFILE = process.env["USERPROFILE"];
-  origXDG_CONFIG_HOME = process.env["XDG_CONFIG_HOME"];
+  origHOME = process.env.HOME;
+  origUSERPROFILE = process.env.USERPROFILE;
+  origXDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
   origCwd = process.cwd();
 
   tmpHome = join(
@@ -39,11 +39,11 @@ beforeEach(async () => {
     `oc-store-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(tmpHome, { recursive: true });
-  process.env["HOME"] = tmpHome;
-  process.env["USERPROFILE"] = tmpHome;
+  process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   // Tests must exercise the legacy `$HOME/.config/...` fallback so they
   // do not leak across users who have `XDG_CONFIG_HOME` set globally.
-  delete process.env["XDG_CONFIG_HOME"];
+  delete process.env.XDG_CONFIG_HOME;
 
   tmpCwd = join(tmpHome, "cwd");
   mkdirSync(tmpCwd, { recursive: true });
@@ -54,12 +54,12 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  if (origHOME === undefined) delete process.env["HOME"];
-  else process.env["HOME"] = origHOME;
-  if (origUSERPROFILE === undefined) delete process.env["USERPROFILE"];
-  else process.env["USERPROFILE"] = origUSERPROFILE;
-  if (origXDG_CONFIG_HOME === undefined) delete process.env["XDG_CONFIG_HOME"];
-  else process.env["XDG_CONFIG_HOME"] = origXDG_CONFIG_HOME;
+  if (origHOME === undefined) delete process.env.HOME;
+  else process.env.HOME = origHOME;
+  if (origUSERPROFILE === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = origUSERPROFILE;
+  if (origXDG_CONFIG_HOME === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = origXDG_CONFIG_HOME;
   process.chdir(origCwd);
   try {
     rmSync(tmpHome, { recursive: true, force: true });
@@ -80,7 +80,7 @@ describe("readMergedConfig", () => {
   it("returns the bundled default preset when no global/local override is staged", async () => {
     const cfg = await readMergedConfig({ cwd: tmpCwd });
     expect(cfg.activePreset).toBe("multi-provider");
-    expect(cfg.presets["anthropic"]).toBeDefined();
+    expect(cfg.presets.anthropic).toBeDefined();
   });
 
   it("honors the local layer under the supplied cwd", async () => {

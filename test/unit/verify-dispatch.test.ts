@@ -27,7 +27,6 @@ import { buildGateDeps, dispatchGrader, verifyTaskAfterHook } from "../../src/ve
 // method/index.ts actually touches, no real config or stores).
 // ---------------------------------------------------------------------------
 
-// biome-ignore lint/suspicious/noExplicitAny: test fixture — fake store stubs intentionally use any
 interface FakeStore {
   registerFromChatMessage?: (...args: any[]) => any;
   isSubagent?: (sid: string) => boolean;
@@ -38,26 +37,19 @@ interface FakeStore {
 
 const makeCtx = (opts: {
   directory: string;
-  // biome-ignore lint/suspicious/noExplicitAny: test fixture — fake impls intentionally use any
   createImpl?: (req: any) => Promise<any>;
-  // biome-ignore lint/suspicious/noExplicitAny: test fixture — fake impls intentionally use any
   promptImpl?: (req: any) => Promise<any>;
-  // biome-ignore lint/suspicious/noExplicitAny: test fixture — fake impls intentionally use any
   deleteImpl?: (req: any) => Promise<any>;
-  // biome-ignore lint/suspicious/noExplicitAny: test fixture — fake impls intentionally use any
   abortImpl?: (req: any) => Promise<any>;
   cfg?: Partial<RouterConfig>;
   changedFiles?: { path: string; status: string }[];
   sessionStore?: FakeStore;
-  // biome-ignore lint/suspicious/noExplicitAny: test fixture — fake impls intentionally use any
   showToastImpl?: (req: any) => Promise<any>;
   changedFileStore?: {
-    // biome-ignore lint/suspicious/noExplicitAny: test fixture — fake store intentionally uses any[]
     get?: (sid: string) => any[];
     clear?: (sid: string) => void;
     record?: (sid: string, tool: string, args: unknown) => void;
   };
-  // biome-ignore lint/suspicious/noExplicitAny: test fixture — fake store intentionally uses any
   guardStore?: { get?: (sid: string) => any; clear?: (sid: string) => void };
 }): PluginContext & { toastSpy?: ReturnType<typeof vi.fn> } => {
   const cfg: RouterConfig = {
@@ -349,8 +341,8 @@ describe("dispatchGrader", () => {
   it("emits a routing.unmet observability event with the offending tier on fail-closed", async () => {
     // SDD: tui-toast-verification — routing.unmet was downgraded from
     // warn to debug. Opt in to debug level and spy on console.log.
-    const origLevel = process.env["MODEL_ROUTER_LOG_LEVEL"];
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    const origLevel = process.env.MODEL_ROUTER_LOG_LEVEL;
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     const { __resetLoggerForTest } = await import("../../src/utils/observability");
     __resetLoggerForTest();
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -372,9 +364,9 @@ describe("dispatchGrader", () => {
         try {
           const env = JSON.parse(l.slice(l.indexOf("{")));
           return (
-            env["event"] === "routing.unmet" &&
-            env["reason"] === "invalid model or provider configuration" &&
-            env["tier"] === "no-such-tier"
+            env.event === "routing.unmet" &&
+            env.reason === "invalid model or provider configuration" &&
+            env.tier === "no-such-tier"
           );
         } catch {
           return false;
@@ -383,8 +375,8 @@ describe("dispatchGrader", () => {
       expect(matched).toBe(true);
     } finally {
       logSpy.mockRestore();
-      if (origLevel === undefined) delete process.env["MODEL_ROUTER_LOG_LEVEL"];
-      else process.env["MODEL_ROUTER_LOG_LEVEL"] = origLevel;
+      if (origLevel === undefined) delete process.env.MODEL_ROUTER_LOG_LEVEL;
+      else process.env.MODEL_ROUTER_LOG_LEVEL = origLevel;
       __resetLoggerForTest();
     }
   });

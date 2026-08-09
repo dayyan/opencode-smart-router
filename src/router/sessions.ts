@@ -37,7 +37,7 @@ export const DEFAULT_TIER_CAPS: Record<string, number> = {
 export const parseCapDirective = (text: string): Cap | null => {
   const m = text.match(/\bCAP\s*:\s*(none|\d+)\b/i);
   if (!m) return null;
-  const raw = m[1]!.toLowerCase();
+  const raw = m[1]?.toLowerCase();
   if (raw === "none") return "none";
   const n = parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -116,7 +116,7 @@ export const buildCapBanner = (
 
 /** Normalise a taskPattern keyword to a lowercase stem for substring matching. */
 const normTaskKw = (kw: string): string => {
-  return kw.toLowerCase().split("(")[0]!.split("/")[0]!.trim();
+  return kw.toLowerCase().split("(")[0]?.split("/")[0]?.trim();
 };
 
 /**

@@ -27,9 +27,9 @@ let origXDG_CONFIG_HOME: string | undefined;
 let origCwd: string;
 
 beforeEach(async () => {
-  origHOME = process.env["HOME"];
-  origUSERPROFILE = process.env["USERPROFILE"];
-  origXDG_CONFIG_HOME = process.env["XDG_CONFIG_HOME"];
+  origHOME = process.env.HOME;
+  origUSERPROFILE = process.env.USERPROFILE;
+  origXDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
   origCwd = process.cwd();
 
   tmpHome = join(
@@ -37,21 +37,21 @@ beforeEach(async () => {
     `oc-shutdown-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(tmpHome, { recursive: true });
-  process.env["HOME"] = tmpHome;
-  process.env["USERPROFILE"] = tmpHome;
-  delete process.env["XDG_CONFIG_HOME"];
+  process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
+  delete process.env.XDG_CONFIG_HOME;
 
   const { __resetPathsForTest } = await import("../../src/router/config-paths");
   __resetPathsForTest();
 });
 
 afterEach(async () => {
-  if (origHOME === undefined) delete process.env["HOME"];
-  else process.env["HOME"] = origHOME;
-  if (origUSERPROFILE === undefined) delete process.env["USERPROFILE"];
-  else process.env["USERPROFILE"] = origUSERPROFILE;
-  if (origXDG_CONFIG_HOME === undefined) delete process.env["XDG_CONFIG_HOME"];
-  else process.env["XDG_CONFIG_HOME"] = origXDG_CONFIG_HOME;
+  if (origHOME === undefined) delete process.env.HOME;
+  else process.env.HOME = origHOME;
+  if (origUSERPROFILE === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = origUSERPROFILE;
+  if (origXDG_CONFIG_HOME === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = origXDG_CONFIG_HOME;
   process.chdir(origCwd);
   try {
     rmSync(tmpHome, { recursive: true, force: true });
@@ -162,7 +162,7 @@ describe("Hooks.dispose — opencode plugin lifecycle", () => {
   it("calls ctx.dispose() and emits lifecycle.shutdown events at the documented phases", async () => {
     const { assembleRuntimeHooks } = await import("../../src/plugin/runtime");
     const { __resetLoggerForTest } = await import("../../src/utils/observability");
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     __resetLoggerForTest();
 
     const ctx = await createPluginContext({ directory: tmpHome } as any);
@@ -183,7 +183,7 @@ describe("Hooks.dispose — opencode plugin lifecycle", () => {
   it("emits lifecycle.shutdown with phase=error when ctx.dispose() throws", async () => {
     const { assembleRuntimeHooks } = await import("../../src/plugin/runtime");
     const { __resetLoggerForTest } = await import("../../src/utils/observability");
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     __resetLoggerForTest();
 
     const ctx = await createPluginContext({ directory: tmpHome } as any);

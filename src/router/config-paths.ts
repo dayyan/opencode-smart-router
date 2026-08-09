@@ -54,15 +54,15 @@ export interface ResolvedConfigPaths {
  * Always returns an absolute path. Never throws.
  */
 export const resolveConfigRoot = (env: NodeJS.ProcessEnv = process.env): string => {
-  const xdg = env["XDG_CONFIG_HOME"];
+  const xdg = env.XDG_CONFIG_HOME;
   if (typeof xdg === "string" && xdg.trim().length > 0) {
     return xdg;
   }
-  const home = env["HOME"];
+  const home = env.HOME;
   if (typeof home === "string" && home.trim().length > 0) {
     return join(home, ".config");
   }
-  const userProfile = env["USERPROFILE"];
+  const userProfile = env.USERPROFILE;
   if (typeof userProfile === "string" && userProfile.trim().length > 0) {
     return join(userProfile, ".config");
   }
@@ -75,11 +75,11 @@ export const resolveConfigRoot = (env: NodeJS.ProcessEnv = process.env): string 
  * can target a path that mirrors the historical install layout.
  */
 export const resolveLegacyConfigRoot = (env: NodeJS.ProcessEnv = process.env): string => {
-  const home = env["HOME"];
+  const home = env.HOME;
   if (typeof home === "string" && home.trim().length > 0) {
     return join(home, ".config");
   }
-  const userProfile = env["USERPROFILE"];
+  const userProfile = env.USERPROFILE;
   if (typeof userProfile === "string" && userProfile.trim().length > 0) {
     return join(userProfile, ".config");
   }

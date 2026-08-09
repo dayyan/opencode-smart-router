@@ -168,10 +168,10 @@ export const parseAcceptanceBlock = (text: string, source: DoDSource = "explicit
 
       const kvPairs = parseKvPairs(remainder);
       const check: Check = { kind: kindStr as CheckKind };
-      if (kvPairs["command"] !== undefined) check.command = kvPairs["command"];
-      if (kvPairs["expect"] !== undefined) check.expect = kvPairs["expect"];
-      if (kvPairs["path"] !== undefined) check.path = kvPairs["path"];
-      if (kvPairs["schema"] !== undefined) check.schema = kvPairs["schema"];
+      if (kvPairs.command !== undefined) check.command = kvPairs.command;
+      if (kvPairs.expect !== undefined) check.expect = kvPairs.expect;
+      if (kvPairs.path !== undefined) check.path = kvPairs.path;
+      if (kvPairs.schema !== undefined) check.schema = kvPairs.schema;
       checks.push(check);
     } else if (lline.startsWith("criteria:")) {
       if (invalidKindDirective) continue;
@@ -230,7 +230,7 @@ export const parseDoDFromAnnotation = (annotationText: string): DoD | null => {
 // inferDoD
 // ---------------------------------------------------------------------------
 
-export const inferDoD = (dispatchText: string, tier: string, hints: InferHints): DoD => {
+export const inferDoD = (dispatchText: string, _tier: string, hints: InferHints): DoD => {
   // tier accepted for forward-compat; not used in phase 2.1
   const lower = dispatchText.toLowerCase();
 
@@ -274,7 +274,7 @@ export const inferDoD = (dispatchText: string, tier: string, hints: InferHints):
       checks.push({ kind: "lintClean", command: hints.lintCommand });
     }
   } else if (category === "writeFile") {
-    checks.push({ kind: "fileExists", path: hints.declaredPath!.trim() });
+    checks.push({ kind: "fileExists", path: hints.declaredPath?.trim() });
   } else if (category === "test") {
     if (hints.testCommand != null && hints.testCommand.trim().length > 0) {
       checks.push({ kind: "testsPass", command: hints.testCommand });

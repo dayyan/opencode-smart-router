@@ -30,9 +30,9 @@ describe("Async layer + state I/O — integration", () => {
   let origCwd: string;
 
   beforeEach(async () => {
-    origHOME = process.env["HOME"];
-    origUSERPROFILE = process.env["USERPROFILE"];
-    origXDG = process.env["XDG_CONFIG_HOME"];
+    origHOME = process.env.HOME;
+    origUSERPROFILE = process.env.USERPROFILE;
+    origXDG = process.env.XDG_CONFIG_HOME;
     origCwd = process.cwd();
 
     tmpHome = join(
@@ -40,9 +40,9 @@ describe("Async layer + state I/O — integration", () => {
       `oc-async-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     mkdirSync(tmpHome, { recursive: true });
-    process.env["HOME"] = tmpHome;
-    process.env["USERPROFILE"] = tmpHome;
-    delete process.env["XDG_CONFIG_HOME"];
+    process.env.HOME = tmpHome;
+    process.env.USERPROFILE = tmpHome;
+    delete process.env.XDG_CONFIG_HOME;
 
     tmpCwd = join(tmpHome, "cwd");
     mkdirSync(tmpCwd, { recursive: true });
@@ -53,12 +53,12 @@ describe("Async layer + state I/O — integration", () => {
   });
 
   afterEach(async () => {
-    if (origHOME === undefined) delete process.env["HOME"];
-    else process.env["HOME"] = origHOME;
-    if (origUSERPROFILE === undefined) delete process.env["USERPROFILE"];
-    else process.env["USERPROFILE"] = origUSERPROFILE;
-    if (origXDG === undefined) delete process.env["XDG_CONFIG_HOME"];
-    else process.env["XDG_CONFIG_HOME"] = origXDG;
+    if (origHOME === undefined) delete process.env.HOME;
+    else process.env.HOME = origHOME;
+    if (origUSERPROFILE === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = origUSERPROFILE;
+    if (origXDG === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = origXDG;
     process.chdir(origCwd);
     try {
       rmSync(tmpHome, { recursive: true, force: true });
@@ -72,7 +72,7 @@ describe("Async layer + state I/O — integration", () => {
   it("readMergedConfig returns the bundled default when no overrides are staged", async () => {
     const cfg = await readMergedConfig({ cwd: tmpCwd });
     expect(cfg.activePreset).toBe("multi-provider");
-    expect(cfg.presets["anthropic"]).toBeDefined();
+    expect(cfg.presets.anthropic).toBeDefined();
   });
 
   it("readMergedConfig honors a freshly written local layer", async () => {
@@ -203,9 +203,9 @@ describe("XDG-aware path resolution — integration", () => {
   let origCwd: string;
 
   beforeEach(async () => {
-    origHOME = process.env["HOME"];
-    origUSERPROFILE = process.env["USERPROFILE"];
-    origXDG = process.env["XDG_CONFIG_HOME"];
+    origHOME = process.env.HOME;
+    origUSERPROFILE = process.env.USERPROFILE;
+    origXDG = process.env.XDG_CONFIG_HOME;
     origCwd = process.cwd();
 
     // XDG root: unique per test. Legacy home: separate dir so we can prove
@@ -220,21 +220,21 @@ describe("XDG-aware path resolution — integration", () => {
     );
     mkdirSync(tmpXdg, { recursive: true });
     mkdirSync(tmpHome, { recursive: true });
-    process.env["HOME"] = tmpHome;
-    process.env["USERPROFILE"] = tmpHome;
-    process.env["XDG_CONFIG_HOME"] = tmpXdg;
+    process.env.HOME = tmpHome;
+    process.env.USERPROFILE = tmpHome;
+    process.env.XDG_CONFIG_HOME = tmpXdg;
 
     const { __resetPathsForTest } = await import("../../src/router/config-paths");
     __resetPathsForTest();
   });
 
   afterEach(async () => {
-    if (origHOME === undefined) delete process.env["HOME"];
-    else process.env["HOME"] = origHOME;
-    if (origUSERPROFILE === undefined) delete process.env["USERPROFILE"];
-    else process.env["USERPROFILE"] = origUSERPROFILE;
-    if (origXDG === undefined) delete process.env["XDG_CONFIG_HOME"];
-    else process.env["XDG_CONFIG_HOME"] = origXDG;
+    if (origHOME === undefined) delete process.env.HOME;
+    else process.env.HOME = origHOME;
+    if (origUSERPROFILE === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = origUSERPROFILE;
+    if (origXDG === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = origXDG;
     process.chdir(origCwd);
     try {
       rmSync(tmpXdg, { recursive: true, force: true });

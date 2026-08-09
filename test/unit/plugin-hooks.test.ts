@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -73,26 +73,26 @@ let origUSERPROFILE: string | undefined;
 let origCwd: string;
 
 beforeEach(() => {
-  origHOME = process.env["HOME"];
-  origUSERPROFILE = process.env["USERPROFILE"];
+  origHOME = process.env.HOME;
+  origUSERPROFILE = process.env.USERPROFILE;
   origCwd = process.cwd();
   tmpHome = join(
     tmpdir(),
     `oc-hooks-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(tmpHome, { recursive: true });
-  process.env["HOME"] = tmpHome;
-  process.env["USERPROFILE"] = tmpHome;
+  process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   tmpCwd = join(tmpHome, "cwd");
   mkdirSync(tmpCwd, { recursive: true });
   process.chdir(tmpCwd);
 });
 
 afterEach(() => {
-  if (origHOME === undefined) delete process.env["HOME"];
-  else process.env["HOME"] = origHOME;
-  if (origUSERPROFILE === undefined) delete process.env["USERPROFILE"];
-  else process.env["USERPROFILE"] = origUSERPROFILE;
+  if (origHOME === undefined) delete process.env.HOME;
+  else process.env.HOME = origHOME;
+  if (origUSERPROFILE === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = origUSERPROFILE;
   process.chdir(origCwd);
   try {
     rmSync(tmpHome, { recursive: true, force: true });
@@ -144,7 +144,7 @@ const makeHarness = (opts?: {
     ...(opts?.configOverrides ?? {}),
   } as RouterConfig;
 
-  const preset: Preset = cfg.presets["default"]!;
+  const preset: Preset = cfg.presets.default!;
   const harness: HookHarness = {
     ctx: {} as PluginContext,
     registerFromChatMessageCalls: 0,
@@ -369,7 +369,7 @@ describe("hook handlers — bypass mode short-circuits", () => {
   it("handleTextComplete returns early when bypassed", async () => {
     const h = makeHarness();
     h.ctx.state.bypassed = true;
-    const out = { text: "a".repeat(50) + " [thinking about it...]" };
+    const out = { text: `${"a".repeat(50)} [thinking about it...]` };
     await handleTextComplete(h.ctx, {}, out);
     expect(out.text).not.toContain("narration detected");
   });
@@ -549,7 +549,7 @@ describe("handleToolExecuteAfter — verifyTaskAfterHook contract", () => {
     const output = { output: "ok", metadata: {} };
     await handleToolExecuteAfter(h.ctx, input, output);
     expect(h.changedFileRecordCalls).toHaveLength(1);
-    expect(h.changedFileRecordCalls[0]!.sid).toBe("sid-NON-SUB");
+    expect(h.changedFileRecordCalls[0]?.sid).toBe("sid-NON-SUB");
   });
 
   it("records the tool event when the session IS a subagent", async () => {
@@ -562,7 +562,7 @@ describe("handleToolExecuteAfter — verifyTaskAfterHook contract", () => {
     const output = { output: "ok", metadata: {} };
     await handleToolExecuteAfter(h.ctx, input, output);
     expect(h.recordToolEventCalls).toHaveLength(1);
-    expect(h.recordToolEventCalls[0]!.sid).toBe("sid-A1");
+    expect(h.recordToolEventCalls[0]?.sid).toBe("sid-A1");
   });
 
   // PR2 / Unit 2 — hook-contract regression for parent-metadata forwarding.
@@ -618,7 +618,7 @@ describe("handleTextComplete — narration banner", () => {
     const h = makeHarness();
     // Pattern: "Let me write the X" — must include a verb from the
     // narration allow-list (write/implement/add/create/fix/build/...).
-    const longText = "a".repeat(50) + " Let me write the report now.";
+    const longText = `${"a".repeat(50)} Let me write the report now.`;
     const out = { text: longText };
     await handleTextComplete(h.ctx, {}, out);
     expect(out.text).toContain("[⚠ narration detected:");
@@ -634,7 +634,7 @@ describe("handleTextComplete — narration banner", () => {
 
   it("does not modify text that has no narration pattern even when long enough", async () => {
     const h = makeHarness();
-    const longText = "a".repeat(50) + " The function returns 42.";
+    const longText = `${"a".repeat(50)} The function returns 42.`;
     const out = { text: longText };
     await handleTextComplete(h.ctx, {}, out);
     expect(out.text).toBe(longText);
@@ -770,8 +770,8 @@ describe("handleToolExecuteBefore — reasoning patch path (plan 012)", () => {
 
     // Patch block ran: variant must have moved from "low" to "thinking"
     // (the binary capability's elevated value).
-    expect(h.ctx.opencodeConfig?.agent?.["fast"]?.variant).toBe("thinking");
-    expect(h.ctx.opencodeConfig?.agent?.["fast"]).not.toEqual(baseline);
+    expect(h.ctx.opencodeConfig?.agent?.fast?.variant).toBe("thinking");
+    expect(h.ctx.opencodeConfig?.agent?.fast).not.toEqual(baseline);
   });
 
   it("static mode + session override → no-op (agent def unchanged, primary regression guard)", async () => {
@@ -786,7 +786,7 @@ describe("handleToolExecuteBefore — reasoning patch path (plan 012)", () => {
 
     // Static mode is the primary regression guard: the override must NOT
     // mutate the agent def even though it was set on the store.
-    expect(h.ctx.opencodeConfig?.agent?.["fast"]).toEqual(baseline);
+    expect(h.ctx.opencodeConfig?.agent?.fast).toEqual(baseline);
   });
 
   it("manual mode + no override + no defaultLevel → no-op (resolved is null)", async () => {
@@ -799,7 +799,7 @@ describe("handleToolExecuteBefore — reasoning patch path (plan 012)", () => {
       { args: { subagent_type: "fast" } },
     );
 
-    expect(h.ctx.opencodeConfig?.agent?.["fast"]).toEqual(baseline);
+    expect(h.ctx.opencodeConfig?.agent?.fast).toEqual(baseline);
   });
 
   it("after-hook restores the captured baseline after a patched dispatch", async () => {
@@ -812,7 +812,7 @@ describe("handleToolExecuteBefore — reasoning patch path (plan 012)", () => {
       { sessionID: "sid-orch", tool: "task", args: { subagent_type: "fast" } },
       { args: { subagent_type: "fast" } },
     );
-    expect(h.ctx.opencodeConfig?.agent?.["fast"]?.variant).toBe("thinking");
+    expect(h.ctx.opencodeConfig?.agent?.fast?.variant).toBe("thinking");
 
     // After-hook restores the baseline captured at handleConfig time.
     await handleToolExecuteAfter(
@@ -820,7 +820,7 @@ describe("handleToolExecuteBefore — reasoning patch path (plan 012)", () => {
       { sessionID: "sid-orch", tool: "task", args: { subagent_type: "fast" } },
       { output: "ok" },
     );
-    expect(h.ctx.opencodeConfig?.agent?.["fast"]).toEqual(baseline);
+    expect(h.ctx.opencodeConfig?.agent?.fast).toEqual(baseline);
   });
 
   it("patch failure is best-effort: hook does not throw and logs a warning instead", async () => {
@@ -829,7 +829,7 @@ describe("handleToolExecuteBefore — reasoning patch path (plan 012)", () => {
 
     // Freeze the agent def so applyReasoningPatch's `agentDef.variant = ...`
     // assignment throws a TypeError (TypeScript modules are in strict mode).
-    const agentDef = h.ctx.opencodeConfig?.agent?.["fast"];
+    const agentDef = h.ctx.opencodeConfig?.agent?.fast;
     if (!agentDef) throw new Error("test setup: missing agent def");
     Object.freeze(agentDef);
 
@@ -851,7 +851,7 @@ describe("handleToolExecuteBefore — reasoning patch path (plan 012)", () => {
     // not mutate anything.
     await handleToolExecuteBefore(h.ctx, { sessionID: "sid-orch", tool: "read" }, { args: {} });
 
-    expect(h.ctx.opencodeConfig?.agent?.["fast"]).toEqual(baseline);
+    expect(h.ctx.opencodeConfig?.agent?.fast).toEqual(baseline);
   });
 });
 
@@ -915,15 +915,15 @@ describe("handleToolExecuteBefore/After — plan 014 surface-limits events + in-
 
   let origLevel: string | undefined;
   beforeEach(() => {
-    origLevel = process.env["MODEL_ROUTER_LOG_LEVEL"];
+    origLevel = process.env.MODEL_ROUTER_LOG_LEVEL;
     // Debug-level events are filtered by the production default ("warn"),
     // so we MUST opt in for the test runtime to see them.
-    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    process.env.MODEL_ROUTER_LOG_LEVEL = "debug";
     __resetLoggerForTest();
   });
   afterEach(() => {
-    if (origLevel === undefined) delete process.env["MODEL_ROUTER_LOG_LEVEL"];
-    else process.env["MODEL_ROUTER_LOG_LEVEL"] = origLevel;
+    if (origLevel === undefined) delete process.env.MODEL_ROUTER_LOG_LEVEL;
+    else process.env.MODEL_ROUTER_LOG_LEVEL = origLevel;
     __resetLoggerForTest();
     // Spies on `console.log` from the per-test setup leak across tests
     // in this describe (vitest 4 only auto-restores on `vi.restoreAllMocks()`).
@@ -942,17 +942,17 @@ describe("handleToolExecuteBefore/After — plan 014 surface-limits events + in-
     );
 
     const envelopes = captureLogEnvelopes(logSpy.mock.calls);
-    const applied = envelopes.filter((e) => e["event"] === "reasoning.patch_applied");
+    const applied = envelopes.filter((e) => e.event === "reasoning.patch_applied");
     expect(applied).toHaveLength(1);
     const env = applied[0]!;
-    expect(env["level"]).toBe("debug");
-    expect(env["session"]).toBe("sid-orch");
-    expect(env["tier"]).toBe("fast");
-    expect(env["override"]).toBe("elevated");
+    expect(env.level).toBe("debug");
+    expect(env.session).toBe("sid-orch");
+    expect(env.tier).toBe("fast");
+    expect(env.override).toBe("elevated");
     // The resolved patch is the binary capability's elevated variant
     // ("thinking"). The exact shape is owned by `resolveReasoningOverride`
     // — here we only assert it carries the variant field the plugin applied.
-    expect((env["patch"] as Record<string, unknown>)["variant"]).toBe("thinking");
+    expect((env.patch as Record<string, unknown>).variant).toBe("thinking");
   });
 
   it("surfaceLimits=false → no debug event (the surfacing is opt-in)", async () => {
@@ -968,7 +968,7 @@ describe("handleToolExecuteBefore/After — plan 014 surface-limits events + in-
 
     const envelopes = captureLogEnvelopes(logSpy.mock.calls);
     const reasoningEvents = envelopes.filter(
-      (e) => typeof e["event"] === "string" && (e["event"] as string).startsWith("reasoning."),
+      (e) => typeof e.event === "string" && (e.event as string).startsWith("reasoning."),
     );
     expect(reasoningEvents).toHaveLength(0);
   });
@@ -1003,12 +1003,12 @@ describe("handleToolExecuteBefore/After — plan 014 surface-limits events + in-
     );
 
     const envelopes = captureLogEnvelopes(logSpy.mock.calls);
-    const unsupported = envelopes.filter((e) => e["event"] === "reasoning.patch_unsupported");
+    const unsupported = envelopes.filter((e) => e.event === "reasoning.patch_unsupported");
     expect(unsupported).toHaveLength(1);
     const env = unsupported[0]!;
-    expect(env["session"]).toBe("sid-orch");
-    expect(env["tier"]).toBe("fast");
-    expect(env["override"]).toBe("elevated");
+    expect(env.session).toBe("sid-orch");
+    expect(env.tier).toBe("fast");
+    expect(env.override).toBe("elevated");
   });
 
   it("same-tier overlap is skipped, not double-patched; emits reasoning.patch_skipped_concurrent", async () => {
@@ -1023,7 +1023,7 @@ describe("handleToolExecuteBefore/After — plan 014 surface-limits events + in-
       { sessionID: "sid-A", tool: "task", args: { subagent_type: "fast" } },
       { args: { subagent_type: "fast" } },
     );
-    expect(h.ctx.opencodeConfig?.agent?.["fast"]?.variant).toBe("thinking");
+    expect(h.ctx.opencodeConfig?.agent?.fast?.variant).toBe("thinking");
     expect(h.ctx.reasoningStore.getTierOwner("fast")).toBe("sid-A");
 
     // Second same-tier dispatch from sid-B must be SKIPPED, not overwriting
@@ -1036,20 +1036,20 @@ describe("handleToolExecuteBefore/After — plan 014 surface-limits events + in-
 
     // Variant is still sid-A's elevated value (binary `elevated` = "thinking"),
     // not sid-B's `max` patch. The live def has NOT been double-mutated.
-    expect(h.ctx.opencodeConfig?.agent?.["fast"]?.variant).toBe("thinking");
+    expect(h.ctx.opencodeConfig?.agent?.fast?.variant).toBe("thinking");
     // Ownership is still sid-A's — sid-B did not steal the lock.
     expect(h.ctx.reasoningStore.getTierOwner("fast")).toBe("sid-A");
     // The agent def has not been reset to baseline either.
-    expect(h.ctx.opencodeConfig?.agent?.["fast"]).not.toEqual(baseline);
+    expect(h.ctx.opencodeConfig?.agent?.fast).not.toEqual(baseline);
 
     // The skip was logged with the documented event name and the owner field.
     const envelopes = captureLogEnvelopes(logSpy.mock.calls);
-    const skipped = envelopes.filter((e) => e["event"] === "reasoning.patch_skipped_concurrent");
+    const skipped = envelopes.filter((e) => e.event === "reasoning.patch_skipped_concurrent");
     expect(skipped).toHaveLength(1);
     const env = skipped[0]!;
-    expect(env["session"]).toBe("sid-B");
-    expect(env["tier"]).toBe("fast");
-    expect(env["owner"]).toBe("sid-A");
+    expect(env.session).toBe("sid-B");
+    expect(env.tier).toBe("fast");
+    expect(env.owner).toBe("sid-A");
   });
 
   it("after-hook releases the per-tier owner so the next dispatch can re-acquire", async () => {
@@ -1165,7 +1165,7 @@ describe("handleToolExecuteBefore — built-in task runtime guard (PR 2)", () =>
     // The guard must fire BEFORE acquireTierOwner: no owner is held.
     expect(h.ctx.reasoningStore.getTierOwner("fast")).toBeUndefined();
     // No patch was applied: the agent def is byte-identical to the baseline.
-    expect(h.ctx.opencodeConfig?.agent?.["fast"]).toEqual(baseline);
+    expect(h.ctx.opencodeConfig?.agent?.fast).toEqual(baseline);
   });
 
   it("throws with the canonical reason when the model has a leading slash", async () => {
@@ -1181,7 +1181,7 @@ describe("handleToolExecuteBefore — built-in task runtime guard (PR 2)", () =>
     ).rejects.toThrow(/invalid model or provider configuration/);
 
     expect(h.ctx.reasoningStore.getTierOwner("fast")).toBeUndefined();
-    expect(h.ctx.opencodeConfig?.agent?.["fast"]).toEqual(baseline);
+    expect(h.ctx.opencodeConfig?.agent?.fast).toEqual(baseline);
   });
 
   it("throws with the canonical reason when the model has a trailing slash", async () => {
@@ -1197,7 +1197,7 @@ describe("handleToolExecuteBefore — built-in task runtime guard (PR 2)", () =>
     ).rejects.toThrow(/invalid model or provider configuration/);
 
     expect(h.ctx.reasoningStore.getTierOwner("fast")).toBeUndefined();
-    expect(h.ctx.opencodeConfig?.agent?.["fast"]).toEqual(baseline);
+    expect(h.ctx.opencodeConfig?.agent?.fast).toEqual(baseline);
   });
 
   it("names the offending tier in the thrown error", async () => {
@@ -1392,7 +1392,7 @@ describe("handleToolExecuteBefore — ghost build subagent mode guard", () => {
     // fast tier owner is acquired (proves no early throw from guard)
     expect(h.ctx.reasoningStore.getTierOwner("fast")).toBe("sid-orch");
     // Agent def was patched from low → thinking (proves full reasoning flow intact)
-    expect(h.ctx.opencodeConfig?.agent?.["fast"]?.variant).toBe("thinking");
+    expect(h.ctx.opencodeConfig?.agent?.fast?.variant).toBe("thinking");
   });
 
   // AC3 regression: mode:"subagent" non-tier skill agent passes through

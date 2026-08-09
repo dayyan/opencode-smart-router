@@ -111,26 +111,26 @@ describe("readConfigLayer — failure modes emit typed RouterConfigError kinds",
   let origXDG: string | undefined;
 
   beforeEach(() => {
-    origHOME = process.env["HOME"];
-    origUSERPROFILE = process.env["USERPROFILE"];
-    origXDG = process.env["XDG_CONFIG_HOME"];
+    origHOME = process.env.HOME;
+    origUSERPROFILE = process.env.USERPROFILE;
+    origXDG = process.env.XDG_CONFIG_HOME;
     tmpHome = join(
       tmpdir(),
       `oc-err-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     mkdirSync(tmpHome, { recursive: true });
-    process.env["HOME"] = tmpHome;
-    process.env["USERPROFILE"] = tmpHome;
-    delete process.env["XDG_CONFIG_HOME"];
+    process.env.HOME = tmpHome;
+    process.env.USERPROFILE = tmpHome;
+    delete process.env.XDG_CONFIG_HOME;
   });
 
   afterEach(() => {
-    if (origHOME === undefined) delete process.env["HOME"];
-    else process.env["HOME"] = origHOME;
-    if (origUSERPROFILE === undefined) delete process.env["USERPROFILE"];
-    else process.env["USERPROFILE"] = origUSERPROFILE;
-    if (origXDG === undefined) delete process.env["XDG_CONFIG_HOME"];
-    else process.env["XDG_CONFIG_HOME"] = origXDG;
+    if (origHOME === undefined) delete process.env.HOME;
+    else process.env.HOME = origHOME;
+    if (origUSERPROFILE === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = origUSERPROFILE;
+    if (origXDG === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = origXDG;
     try {
       rmSync(tmpHome, { recursive: true, force: true });
     } catch {

@@ -42,8 +42,8 @@ describe("resolveConfigRoot", () => {
   it("prefers $XDG_CONFIG_HOME when set", () => {
     const saved = { ...process.env };
     try {
-      process.env["XDG_CONFIG_HOME"] = "/custom/xdg";
-      process.env["HOME"] = "/home/someone";
+      process.env.XDG_CONFIG_HOME = "/custom/xdg";
+      process.env.HOME = "/home/someone";
       __resetPathsForTest();
       expect(resolveConfigRoot()).toBe("/custom/xdg");
     } finally {
@@ -54,8 +54,8 @@ describe("resolveConfigRoot", () => {
   it("falls back to $HOME/.config when XDG is unset", () => {
     const saved = { ...process.env };
     try {
-      delete process.env["XDG_CONFIG_HOME"];
-      process.env["HOME"] = "/home/someone";
+      delete process.env.XDG_CONFIG_HOME;
+      process.env.HOME = "/home/someone";
       __resetPathsForTest();
       expect(resolveConfigRoot()).toBe("/home/someone/.config");
     } finally {
@@ -66,9 +66,9 @@ describe("resolveConfigRoot", () => {
   it("falls back to $USERPROFILE/.config on Windows when HOME is missing", () => {
     const saved = { ...process.env };
     try {
-      delete process.env["XDG_CONFIG_HOME"];
-      delete process.env["HOME"];
-      process.env["USERPROFILE"] = "C:/Users/someone";
+      delete process.env.XDG_CONFIG_HOME;
+      delete process.env.HOME;
+      process.env.USERPROFILE = "C:/Users/someone";
       __resetPathsForTest();
       expect(resolveConfigRoot()).toBe(join("C:/Users/someone", ".config"));
     } finally {
@@ -79,8 +79,8 @@ describe("resolveConfigRoot", () => {
   it("ignores an empty $XDG_CONFIG_HOME (falls through to $HOME)", () => {
     const saved = { ...process.env };
     try {
-      process.env["XDG_CONFIG_HOME"] = "   ";
-      process.env["HOME"] = "/home/someone";
+      process.env.XDG_CONFIG_HOME = "   ";
+      process.env.HOME = "/home/someone";
       __resetPathsForTest();
       expect(resolveConfigRoot()).toBe("/home/someone/.config");
     } finally {
@@ -97,8 +97,8 @@ describe("resolveLegacyConfigRoot", () => {
   it("ignores $XDG_CONFIG_HOME and always uses $HOME/.config", () => {
     const saved = { ...process.env };
     try {
-      process.env["XDG_CONFIG_HOME"] = "/custom/xdg";
-      process.env["HOME"] = "/home/someone";
+      process.env.XDG_CONFIG_HOME = "/custom/xdg";
+      process.env.HOME = "/home/someone";
       __resetPathsForTest();
       // resolveLegacyConfigRoot is intentionally XDG-independent so the
       // read-fallback path mirrors the historical install layout.
@@ -115,8 +115,8 @@ describe("resolveLegacyConfigRoot", () => {
   it("falls back to $USERPROFILE/.config when $HOME is missing", () => {
     const saved = { ...process.env };
     try {
-      delete process.env["HOME"];
-      process.env["USERPROFILE"] = "C:/Users/someone";
+      delete process.env.HOME;
+      process.env.USERPROFILE = "C:/Users/someone";
       __resetPathsForTest();
       expect(resolveLegacyConfigRoot()).toBe(join("C:/Users/someone", ".config"));
     } finally {
@@ -137,8 +137,8 @@ describe("resolveConfigPaths", () => {
   it("returns the expected triple when XDG is set", () => {
     const saved = { ...process.env };
     try {
-      process.env["XDG_CONFIG_HOME"] = "/custom/xdg";
-      process.env["HOME"] = "/home/someone";
+      process.env.XDG_CONFIG_HOME = "/custom/xdg";
+      process.env.HOME = "/home/someone";
       __resetPathsForTest();
       const paths: ResolvedConfigPaths = resolveConfigPaths();
       expect(paths.globalConfig).toBe(join("/custom/xdg", "opencode-smart-router", "tiers.json"));
@@ -161,8 +161,8 @@ describe("resolveConfigPaths", () => {
   it("falls back to $HOME/.config when XDG is unset (statePreferred === stateLegacy)", () => {
     const saved = { ...process.env };
     try {
-      delete process.env["XDG_CONFIG_HOME"];
-      process.env["HOME"] = "/home/someone";
+      delete process.env.XDG_CONFIG_HOME;
+      process.env.HOME = "/home/someone";
       __resetPathsForTest();
       const paths = resolveConfigPaths();
       expect(paths.globalConfig).toBe(
@@ -185,8 +185,8 @@ describe("resolveConfigPaths", () => {
   it("memoizes the result for the same env", () => {
     const saved = { ...process.env };
     try {
-      process.env["HOME"] = "/home/someone";
-      delete process.env["XDG_CONFIG_HOME"];
+      process.env.HOME = "/home/someone";
+      delete process.env.XDG_CONFIG_HOME;
       __resetPathsForTest();
       const a = resolveConfigPaths();
       const b = resolveConfigPaths();
@@ -204,12 +204,12 @@ describe("resolveConfigPaths", () => {
   it("re-resolves when env changes", () => {
     const saved = { ...process.env };
     try {
-      delete process.env["XDG_CONFIG_HOME"];
-      process.env["HOME"] = "/home/a";
+      delete process.env.XDG_CONFIG_HOME;
+      process.env.HOME = "/home/a";
       __resetPathsForTest();
       const before = resolveConfigPaths();
 
-      process.env["HOME"] = "/home/b";
+      process.env.HOME = "/home/b";
       __resetPathsForTest();
       const after = resolveConfigPaths();
 
@@ -234,8 +234,8 @@ describe("convenience accessors", () => {
   it("globalConfigPath() returns the XDG or legacy tiers.json path", () => {
     const saved = { ...process.env };
     try {
-      delete process.env["XDG_CONFIG_HOME"];
-      process.env["HOME"] = "/home/someone";
+      delete process.env.XDG_CONFIG_HOME;
+      process.env.HOME = "/home/someone";
       __resetPathsForTest();
       expect(globalConfigPath()).toBe(
         join("/home/someone", ".config", "opencode-smart-router", "tiers.json"),
@@ -252,8 +252,8 @@ describe("convenience accessors", () => {
   it("statePath() and stateLegacyPath() return the documented triple entries", () => {
     const saved = { ...process.env };
     try {
-      process.env["XDG_CONFIG_HOME"] = "/custom/xdg";
-      process.env["HOME"] = "/home/someone";
+      process.env.XDG_CONFIG_HOME = "/custom/xdg";
+      process.env.HOME = "/home/someone";
       __resetPathsForTest();
       expect(statePath()).toBe(join("/custom/xdg", "opencode", "opencode-smart-router.state.json"));
       expect(stateLegacyPath()).toBe(
@@ -278,9 +278,9 @@ describe("resolveConfigPaths — hostile env smoke", () => {
   it("does not throw when HOME, USERPROFILE, and XDG are all unset", () => {
     const saved = { ...process.env };
     try {
-      delete process.env["HOME"];
-      delete process.env["USERPROFILE"];
-      delete process.env["XDG_CONFIG_HOME"];
+      delete process.env.HOME;
+      delete process.env.USERPROFILE;
+      delete process.env.XDG_CONFIG_HOME;
       __resetPathsForTest();
       expect(() => resolveConfigPaths()).not.toThrow();
     } finally {

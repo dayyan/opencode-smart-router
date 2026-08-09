@@ -334,7 +334,7 @@ export const verifyTaskAfterHook = async (
   output: Record<string, unknown>,
 ): Promise<void> => {
   const inputRec = (input ?? {}) as Record<string, unknown>;
-  const toolName = inputRec["tool"];
+  const toolName = inputRec.tool;
   if (typeof toolName !== "string") return;
   // Parse the childSessionID UNCONDITIONALLY so the cleanup `finally` can
   // always reach it, even when verification is disabled (mode === "off") or
@@ -346,7 +346,7 @@ export const verifyTaskAfterHook = async (
   const parsedEarly = parseTaskResult(output);
   const childSessionID: string | null = parsedEarly.childSessionID;
   try {
-    const taskArgs = asTaskToolArgs(inputRec["args"]);
+    const taskArgs = asTaskToolArgs(inputRec.args);
     const activeCfg = await ctx.getConfig();
     let mode = "off";
     try {
@@ -454,8 +454,8 @@ export const verifyTaskAfterHook = async (
       const li = ladder.indexOf(producerTier);
       const nextTier = li >= 0 && li < ladder.length - 1 ? ladder[li + 1] : null;
       const note = scrubText(buildForcingNote(res.verdict.reasons, { producerTier, nextTier }));
-      const existing = output["output"];
-      output["output"] = typeof existing === "string" ? existing + "\n\n" + note : note;
+      const existing = output.output;
+      output.output = typeof existing === "string" ? `${existing}\n\n${note}` : note;
     }
   } catch (err) {
     // fail-closed: a verification error must NEVER throw out of the after-hook.

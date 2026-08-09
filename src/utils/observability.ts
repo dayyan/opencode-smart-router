@@ -63,7 +63,7 @@ const BINDING_RESERVED = new Set(["ts", "level", "event"]);
  *   2. The default ("warn") — warnings and errors fire, info/debug events
  *      are silenced unless explicitly opted in. */
 const resolveLevel = (): LogLevel => {
-  const raw = process.env["MODEL_ROUTER_LOG_LEVEL"];
+  const raw = process.env.MODEL_ROUTER_LOG_LEVEL;
   if (raw === "debug" || raw === "info" || raw === "warn" || raw === "error") return raw;
   return "warn";
 };

@@ -30,30 +30,30 @@ let origUSERPROFILE: string | undefined;
 let origXDG_CONFIG_HOME: string | undefined;
 
 beforeEach(async () => {
-  origHOME = process.env["HOME"];
-  origUSERPROFILE = process.env["USERPROFILE"];
-  origXDG_CONFIG_HOME = process.env["XDG_CONFIG_HOME"];
+  origHOME = process.env.HOME;
+  origUSERPROFILE = process.env.USERPROFILE;
+  origXDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
   tmpHome = join(
     tmpdir(),
     `oc-freshcfg-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(tmpHome, { recursive: true });
-  process.env["HOME"] = tmpHome;
-  process.env["USERPROFILE"] = tmpHome;
+  process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   // Tests must exercise the legacy `$HOME/.config/...` fallback so they
   // do not leak across users who have `XDG_CONFIG_HOME` set globally.
-  delete process.env["XDG_CONFIG_HOME"];
+  delete process.env.XDG_CONFIG_HOME;
   const { __resetPathsForTest } = await import("../../src/router/config-paths");
   __resetPathsForTest();
 });
 
 afterEach(async () => {
-  if (origHOME === undefined) delete process.env["HOME"];
-  else process.env["HOME"] = origHOME;
-  if (origUSERPROFILE === undefined) delete process.env["USERPROFILE"];
-  else process.env["USERPROFILE"] = origUSERPROFILE;
-  if (origXDG_CONFIG_HOME === undefined) delete process.env["XDG_CONFIG_HOME"];
-  else process.env["XDG_CONFIG_HOME"] = origXDG_CONFIG_HOME;
+  if (origHOME === undefined) delete process.env.HOME;
+  else process.env.HOME = origHOME;
+  if (origUSERPROFILE === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = origUSERPROFILE;
+  if (origXDG_CONFIG_HOME === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = origXDG_CONFIG_HOME;
   try {
     rmSync(tmpHome, { recursive: true, force: true });
   } catch {

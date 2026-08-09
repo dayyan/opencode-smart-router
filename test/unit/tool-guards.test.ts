@@ -54,7 +54,7 @@ const makeGuardHarness = (opts?: { configOverrides?: Partial<RouterConfig> }): G
     rules: [],
     ...(opts?.configOverrides ?? {}),
   } as RouterConfig;
-  const preset: Preset = cfg.presets["default"]!;
+  const preset: Preset = cfg.presets.default!;
 
   const sessionStore: SessionStoreStub = {
     isSubagent: () => false,

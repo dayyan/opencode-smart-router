@@ -56,7 +56,7 @@ describe("trajectory wiring (Phase 0.3, record-only)", () => {
       { sessionID: sid, tool: "read", args: { file_path: "a.ts" } },
       out,
     );
-    await plugin["event"]({ event: { type: "session.idle", properties: { sessionID: sid } } });
+    await plugin.event({ event: { type: "session.idle", properties: { sessionID: sid } } });
     expect(out.output).toBe("RESULT"); // untouched
     expect(() => readFileSync(trajFile(sid), "utf-8")).toThrow(); // no dump file
   });
@@ -77,7 +77,7 @@ describe("trajectory wiring (Phase 0.3, record-only)", () => {
       { sessionID: sid, tool: "edit", args: { file_path: "a.ts" } },
       { output: "E" },
     );
-    await plugin["event"]({ event: { type: "session.idle", properties: { sessionID: sid } } });
+    await plugin.event({ event: { type: "session.idle", properties: { sessionID: sid } } });
 
     const content = readFileSync(trajFile(sid), "utf-8");
     expect(content).toContain(`[trajectory ${sid}]`);
@@ -96,7 +96,7 @@ describe("trajectory wiring (Phase 0.3, record-only)", () => {
       { sessionID: sid, tool: "read", args: { file_path: "a.ts" } },
       { output: "R" },
     );
-    await plugin["event"]({ event: { type: "session.idle", properties: { sessionID: sid } } });
+    await plugin.event({ event: { type: "session.idle", properties: { sessionID: sid } } });
     expect(() => readFileSync(trajFile(sid), "utf-8")).toThrow(); // no file written
   });
 });

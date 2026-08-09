@@ -63,7 +63,7 @@ export const createExecSeam = (ctx: ExecSeamContext): ExecSeam => {
             windowsHide: true,
           },
           (err: ExecException | null, stdout: string, stderr: string) => {
-            const timedOut = !!(err && err.killed && err.signal === "SIGTERM");
+            const timedOut = !!(err?.killed && err.signal === "SIGTERM");
             const code = err && typeof err.code === "number" ? err.code : err ? 1 : 0;
             resolve({
               code,
