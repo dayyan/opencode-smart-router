@@ -395,11 +395,10 @@
       },
       "medium": {
         "model": "minimax-coding-plan/MiniMax-M2.7",
-        "variant": "thinking",
         "costRatio": 5,
         "description": "Builder: standard implementation. Features, refactoring, tests, code review, build-fixes. Matches existing patterns; runs targeted verification only.",
         "steps": 50,
-        "capability": { "kind": "binary", "field": "variant", "elevated": "thinking" },
+        "capability": { "kind": "none" },
         "whenToUse": [
           "Feature implementation (multi-file allowed)",
           "Refactoring",
