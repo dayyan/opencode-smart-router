@@ -361,12 +361,9 @@ describe("dedupePlugins", () => {
   });
 
   it("removes every legacy alias variant, leaving nothing OSR behind", () => {
-    expect(
-      dedupePlugins([
-        "opencode-agent-router@1.4.0",
-        "opencode-model-router@1.3.0",
-      ]),
-    ).toEqual([]);
+    expect(dedupePlugins(["opencode-agent-router@1.4.0", "opencode-model-router@1.3.0"])).toEqual(
+      [],
+    );
   });
 
   it("removes OSR entries while preserving unrelated ones, with last-wins per base", () => {

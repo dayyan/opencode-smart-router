@@ -436,9 +436,17 @@ describe("integration — manual mode patch merges into agent def", () => {
 describe("registerTierAgents — five tiers with five Claude prefixes", () => {
   const fiveTierPreset = makePreset({
     fast: makeTier({ model: "anthropic/claude-haiku-4-5", prompt: "fast prompt" }),
-    light: makeTier({ model: "anthropic/claude-sonnet-4-6", variant: "max", prompt: "light prompt" }),
+    light: makeTier({
+      model: "anthropic/claude-sonnet-4-6",
+      variant: "max",
+      prompt: "light prompt",
+    }),
     medium: makeTier({ model: "anthropic/claude-sonnet-4-6", prompt: "medium prompt" }),
-    focused: makeTier({ model: "anthropic/claude-haiku-4-5", variant: "thinking", prompt: "focused prompt" }),
+    focused: makeTier({
+      model: "anthropic/claude-haiku-4-5",
+      variant: "thinking",
+      prompt: "focused prompt",
+    }),
     heavy: makeTier({ model: "anthropic/claude-opus-4-8", prompt: "heavy prompt" }),
   });
   const fiveTierCfg = makeConfig();

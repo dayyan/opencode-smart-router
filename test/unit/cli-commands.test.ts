@@ -53,9 +53,9 @@ vi.mock("../../src/cli/registry", async () => {
 
 import { fetchLatestVersion, getInstalledVersion, isStale } from "../../src/cli/registry";
 import { runDoctor, runStatus } from "../../src/cli/status";
-import { runUpdate } from "../../src/cli/update";
 import { runConfigInit, runConfigPaths } from "../../src/cli/tiers-config";
 import { runUninstall } from "../../src/cli/uninstall";
+import { runUpdate } from "../../src/cli/update";
 
 // ---------------------------------------------------------------------------
 // Mock the bundled tiers.json path so --from-bundled is deterministic.
@@ -649,7 +649,14 @@ describe("runMain — config dispatch", () => {
   });
 
   it("strict parseArgs accepts --from-bundled", async () => {
-    const result = await runMain(["node", "cli.mjs", "config", "init", "--dry-run", "--from-bundled"]);
+    const result = await runMain([
+      "node",
+      "cli.mjs",
+      "config",
+      "init",
+      "--dry-run",
+      "--from-bundled",
+    ]);
     expect(result.exitCode).toBe(0);
   });
 
@@ -699,9 +706,9 @@ describe("runDoctor — freshness check", () => {
 
     const result = await runDoctor();
 
-    expect(result.warnings.some((w) => w.includes("npx opencode-smart-router@latest install"))).toBe(
-      true,
-    );
+    expect(
+      result.warnings.some((w) => w.includes("npx opencode-smart-router@latest install")),
+    ).toBe(true);
     expect(result.installedVersion).toBe("1.0.0");
     expect(result.latestVersion).toBe("2.0.0");
   });
@@ -769,7 +776,10 @@ describe("runStatus — version lines", () => {
 
     await runStatus();
 
-    const allOutput = vi.mocked(logSpy).mock.calls.map((c: unknown[]) => String(c[0] ?? "")).join("\n");
+    const allOutput = vi
+      .mocked(logSpy)
+      .mock.calls.map((c: unknown[]) => String(c[0] ?? ""))
+      .join("\n");
     expect(allOutput).not.toContain("Installed version:");
     expect(allOutput).not.toContain("Latest:");
   });
@@ -781,7 +791,10 @@ describe("runStatus — version lines", () => {
 
     await runStatus();
 
-    const allOutput = vi.mocked(logSpy).mock.calls.map((c: unknown[]) => String(c[0] ?? "")).join("\n");
+    const allOutput = vi
+      .mocked(logSpy)
+      .mock.calls.map((c: unknown[]) => String(c[0] ?? ""))
+      .join("\n");
     expect(allOutput).not.toContain("Installed version:");
     expect(allOutput).not.toContain("Latest:");
   });

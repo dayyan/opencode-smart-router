@@ -106,7 +106,9 @@ describe("atLeastProducerTier — five-tier ladder", () => {
   });
 
   it("producerTier light + minGraderTier medium => medium", () => {
-    expect(atLeastProducerTier("light", { ladder: fiveTierLadder, minGraderTier: "medium" })).toBe("medium");
+    expect(atLeastProducerTier("light", { ladder: fiveTierLadder, minGraderTier: "medium" })).toBe(
+      "medium",
+    );
   });
 
   it("producerTier focused => focused", () => {
@@ -114,7 +116,9 @@ describe("atLeastProducerTier — five-tier ladder", () => {
   });
 
   it("producerTier focused + minGraderTier heavy => heavy", () => {
-    expect(atLeastProducerTier("focused", { ladder: fiveTierLadder, minGraderTier: "heavy" })).toBe("heavy");
+    expect(atLeastProducerTier("focused", { ladder: fiveTierLadder, minGraderTier: "heavy" })).toBe(
+      "heavy",
+    );
   });
 
   it("producerTier heavy => heavy (five-tier)", () => {
@@ -126,12 +130,16 @@ describe("atLeastProducerTier — five-tier ladder", () => {
   });
 
   it("minGraderTier light promotes fast => light", () => {
-    expect(atLeastProducerTier("fast", { ladder: fiveTierLadder, minGraderTier: "light" })).toBe("light");
+    expect(atLeastProducerTier("fast", { ladder: fiveTierLadder, minGraderTier: "light" })).toBe(
+      "light",
+    );
   });
 
   it("producerTier medium clamps to heavy when minGraderTier is above top", () => {
     // minGraderTier heavy is index 4, producer medium is index 2, max is 4
-    expect(atLeastProducerTier("medium", { ladder: fiveTierLadder, minGraderTier: "heavy" })).toBe("heavy");
+    expect(atLeastProducerTier("medium", { ladder: fiveTierLadder, minGraderTier: "heavy" })).toBe(
+      "heavy",
+    );
   });
 });
 
@@ -251,7 +259,10 @@ describe("parseGraderVerdict", () => {
     // Strict parse: pass field must be boolean. With non-string reasons,
     // the filter strips them, but the outer result is still returned.
     // This test documents current lenient behavior: filter non-string reasons.
-    expect(parseGraderVerdict('{"pass":true,"reasons":[1,2,3]}')).toEqual({ pass: true, reasons: [] });
+    expect(parseGraderVerdict('{"pass":true,"reasons":[1,2,3]}')).toEqual({
+      pass: true,
+      reasons: [],
+    });
   });
 
   it("treats missing reasons key as []", () => {
@@ -277,13 +288,14 @@ describe("parseGraderVerdict", () => {
     expect(result).toEqual({ pass: false, reasons: ["criterion unmet"] });
   });
 
-  it('verdict-field fallback works inside fenced ```json block', () => {
+  it("verdict-field fallback works inside fenced ```json block", () => {
     const text = '```json\n{"verdict":"APPROVED","reasons":[]}\n```';
     expect(parseGraderVerdict(text)).toEqual({ pass: true, reasons: [] });
   });
 
   it("verdict-field fallback works with prose-wrapped JSON", () => {
-    const text = 'Based on my analysis, {"verdict":"REJECTED","reasons":["missing evidence"]} end of report.';
+    const text =
+      'Based on my analysis, {"verdict":"REJECTED","reasons":["missing evidence"]} end of report.';
     expect(parseGraderVerdict(text)).toEqual({ pass: false, reasons: ["missing evidence"] });
   });
 });

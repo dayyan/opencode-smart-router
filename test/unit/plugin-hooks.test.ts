@@ -1461,7 +1461,13 @@ const extendHarnessWithDepth = (h: HookHarness): void => {
 
   h.ctx.sessionStore = {
     ...h.ctx.sessionStore,
-    registerFromSessionCreated: ({ sessionID, parentID }: { sessionID: string; parentID: string | null }) => {
+    registerFromSessionCreated: ({
+      sessionID,
+      parentID,
+    }: {
+      sessionID: string;
+      parentID: string | null;
+    }) => {
       if (parentID != null) {
         parentMap.set(sessionID, parentID);
       }

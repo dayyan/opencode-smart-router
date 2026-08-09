@@ -19,7 +19,12 @@ import ModelRouterPlugin from "../../src/index";
 // Fake ctx builder
 // ---------------------------------------------------------------------------
 
-const makeCtx = (dir: string, promptReply: string) => {
+const makeCtx = (dir: string, promptReply: string, extraConfig?: Record<string, unknown>) => {
+  if (extraConfig) {
+    const cfgDir = path.join(dir, ".opencode");
+    fs.mkdirSync(cfgDir, { recursive: true });
+    fs.writeFileSync(path.join(cfgDir, "tiers.json"), JSON.stringify(extraConfig, null, 2));
+  }
   return {
     directory: dir,
     worktree: dir,
@@ -90,7 +95,11 @@ describe("Layer-2 wiring", () => {
   describe("Option (i) verify-dispatch — tool.execute.after", () => {
     it("CASE A: appends forcing note when deterministic DoD FAILS (file missing)", async () => {
       process.env.MODEL_ROUTER_ENFORCE = "1";
-      const hooks: any = await ModelRouterPlugin(makeCtx(dir, "grader/producer reply") as any);
+      const hooks: any = await ModelRouterPlugin(
+        makeCtx(dir, "grader/producer reply", {
+          enforcement: { verify: { skipFastTier: false } },
+        }) as any,
+      );
 
       const input = {
         tool: "task",

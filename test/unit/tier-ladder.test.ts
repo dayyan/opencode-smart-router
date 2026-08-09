@@ -15,8 +15,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { resolveLadder } from "../../src/router/tier-ladder";
 import type { RouterConfig } from "../../src/router/config";
+import { resolveLadder } from "../../src/router/tier-ladder";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -24,15 +24,19 @@ import type { RouterConfig } from "../../src/router/config";
 
 /** Minimal cfg builder with an active preset containing named tiers. */
 const makeCfg = (
-  tierDefs: Record<string, { model: string; description: string; whenToUse: string[]; costRatio?: number }>,
+  tierDefs: Record<
+    string,
+    { model: string; description: string; whenToUse: string[]; costRatio?: number }
+  >,
   overrides: Partial<RouterConfig> = {},
-): RouterConfig => ({
-  activePreset: "default",
-  presets: { default: tierDefs },
-  rules: [],
-  defaultTier: "medium",
-  ...overrides,
-} as RouterConfig);
+): RouterConfig =>
+  ({
+    activePreset: "default",
+    presets: { default: tierDefs },
+    rules: [],
+    defaultTier: "medium",
+    ...overrides,
+  }) as RouterConfig;
 
 // ---------------------------------------------------------------------------
 // RED — explicit precedence (scenario: explicit ladder wins)

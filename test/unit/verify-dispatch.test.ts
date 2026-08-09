@@ -585,7 +585,10 @@ describe("verifyTaskAfterHook", () => {
     process.env.MODEL_ROUTER_ENFORCE = "1";
     // Target file does NOT exist -> fileExists deterministic check fails.
     // skipFastTier: false needed so fast-tier task still runs verification.
-    const ctx = makeCtx({ directory: workDir, cfg: { enforcement: { verify: { skipFastTier: false } } } } as any);
+    const ctx = makeCtx({
+      directory: workDir,
+      cfg: { enforcement: { verify: { skipFastTier: false } } },
+    } as any);
 
     const input = {
       tool: "task",
@@ -718,7 +721,9 @@ describe("verifyTaskAfterHook", () => {
     expect(output.output).toBe("<task_result>\nDONE.</task_result>");
     // Warning toast fires to signal inconclusive verification.
     expect(ctx.toastSpy).toHaveBeenCalledTimes(1);
-    const toastArgs = ctx.toastSpy.mock.calls[0]?.[0] as { body: { message: string; variant: string } };
+    const toastArgs = ctx.toastSpy.mock.calls[0]?.[0] as {
+      body: { message: string; variant: string };
+    };
     expect(toastArgs?.body.variant).toBe("warning");
     expect(toastArgs?.body.message).toContain("inconclusive");
   });
@@ -1395,7 +1400,10 @@ describe("verifyTaskAfterHook", () => {
 describe("verifyTaskAfterHook — toast helper wiring (SDD tui-toast-verification)", () => {
   it("fires a warning toast on a real (non-skipped) verification rejection", async () => {
     process.env.MODEL_ROUTER_ENFORCE = "1";
-    const ctx = makeCtx({ directory: workDir, cfg: { enforcement: { verify: { skipFastTier: false } } } } as any) as ReturnType<typeof makeCtx> & {
+    const ctx = makeCtx({
+      directory: workDir,
+      cfg: { enforcement: { verify: { skipFastTier: false } } },
+    } as any) as ReturnType<typeof makeCtx> & {
       toastSpy: ReturnType<typeof vi.fn>;
     };
 
@@ -1765,7 +1773,10 @@ describe("verifyTaskAfterHook — narrowed shape tolerance", () => {
 
   it("tolerates args without subagent_type (treated as fast producerTier)", async () => {
     process.env.MODEL_ROUTER_ENFORCE = "1";
-    const ctx = makeCtx({ directory: workDir, cfg: { enforcement: { verify: { skipFastTier: false } } } as any });
+    const ctx = makeCtx({
+      directory: workDir,
+      cfg: { enforcement: { verify: { skipFastTier: false } } } as any,
+    });
     const input = {
       tool: "task",
       sessionID: "orch",
@@ -2151,9 +2162,7 @@ describe("dispatchGrader / buildGateDeps / verifyTaskAfterHook — parentSession
     expect(createCalls).toHaveLength(1);
     expect(createCalls[0]).toEqual({ body: { parentID: "real-orch-parent" } });
     // Belt-and-braces: explicit non-equality with the subagent SID path.
-    expect(createCalls[0]).not.toEqual(
-      { body: { parentID: "subagent-sid-NEVER-FORWARD" } },
-    );
+    expect(createCalls[0]).not.toEqual({ body: { parentID: "subagent-sid-NEVER-FORWARD" } });
   });
 
   // SDD restore-session-parenting: dispatchGrader MUST thread

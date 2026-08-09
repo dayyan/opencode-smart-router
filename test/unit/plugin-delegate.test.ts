@@ -389,9 +389,9 @@ describe("executeDelegate — SDK teardown fail-soft", () => {
     const { ctx } = makeCtx({ abortImpl: abortSpy, deleteImpl: deleteSpy });
 
     // Should not throw — abort rejection is caught, fail-soft.
-    await expect(
-      executeDelegate(ctx, { task: "say hi", tier: "fast" }),
-    ).resolves.toContain("unmet");
+    await expect(executeDelegate(ctx, { task: "say hi", tier: "fast" })).resolves.toContain(
+      "unmet",
+    );
 
     // abort WAS called (failure path triggers shouldAbort=true)
     expect(abortSpy).toHaveBeenCalled();
@@ -417,9 +417,9 @@ describe("executeDelegate — SDK teardown fail-soft", () => {
     const { ctx } = makeCtx({ abortImpl: abortSpy, deleteImpl: deleteSpy });
 
     // Should not throw — abort rejection is caught, fail-soft.
-    await expect(
-      executeDelegate(ctx, { task: "say hi", tier: "fast" }),
-    ).resolves.toContain("unmet");
+    await expect(executeDelegate(ctx, { task: "say hi", tier: "fast" })).resolves.toContain(
+      "unmet",
+    );
 
     // abort was attempted (failure path)
     expect(abortSpy).toHaveBeenCalled();

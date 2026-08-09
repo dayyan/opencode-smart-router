@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createSessionStore } from "../../src/router/sessions";
+import type { PluginContext } from "../../src/plugin/context";
 import { handleToolExecuteBefore } from "../../src/plugin/hooks";
 import { createReasoningStore } from "../../src/reasoning/store";
-import type { PluginContext } from "../../src/plugin/context";
+import { createSessionStore } from "../../src/router/sessions";
 
 // ---------------------------------------------------------------------------
 // Integration test: real store + real hook wiring for depth-based guard.

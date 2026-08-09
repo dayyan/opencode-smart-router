@@ -147,7 +147,9 @@ describe("validateConfig — tier shape", () => {
   });
   it("accepts a tier with a well-formed provider/model string", () => {
     expect(() =>
-      validateConfig(withTier({ model: "anthropic/claude-3-5-sonnet", description: "d", whenToUse: [] })),
+      validateConfig(
+        withTier({ model: "anthropic/claude-3-5-sonnet", description: "d", whenToUse: [] }),
+      ),
     ).not.toThrow();
   });
 });

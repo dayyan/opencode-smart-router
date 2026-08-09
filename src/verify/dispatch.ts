@@ -25,8 +25,8 @@ import {
 } from "../plugin/types";
 import type { RouterConfig } from "../router/config";
 import { resolveEnforcementMode } from "../router/enforcement";
-import { resolveLadder } from "../router/tier-ladder";
 import { getActiveTiers } from "../router/protocol";
+import { resolveLadder } from "../router/tier-ladder";
 import { WRITE_TOOLS } from "../router/tools";
 import { logEvent } from "../utils/observability";
 import { resolveTierModelGuard } from "../utils/tier-model-guard";
@@ -344,7 +344,7 @@ export const verifyTaskAfterHook = async (
   // from `output.metadata`, returns nulls when absent) — safe to call before
   // the gate.
   const parsedEarly = parseTaskResult(output);
-  let childSessionID: string | null = parsedEarly.childSessionID;
+  const childSessionID: string | null = parsedEarly.childSessionID;
   try {
     const taskArgs = asTaskToolArgs(inputRec["args"]);
     const activeCfg = await ctx.getConfig();
@@ -366,7 +366,7 @@ export const verifyTaskAfterHook = async (
     const { finalReturnText, parentSessionID } = parsed;
     const producerTier = taskArgs?.subagent_type ?? "fast";
     const verifyCfg = activeCfg.enforcement?.verify;
-    const skipTiers = verifyCfg?.skipTiers ?? (verifyCfg?.skipFastTier ?? true ? ["fast"] : []);
+    const skipTiers = verifyCfg?.skipTiers ?? ((verifyCfg?.skipFastTier ?? true) ? ["fast"] : []);
     if (skipTiers.includes(producerTier)) return;
     const dod = buildDelegationDoD({
       prompt: taskArgs?.prompt,

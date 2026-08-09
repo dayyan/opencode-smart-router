@@ -53,17 +53,14 @@ describe("classify", () => {
     expect(classify({ tool }, policy)).toBe("read");
   });
 
-  it.each([
-    ["write"],
-    ["edit"],
-    ["patch"],
-    ["bash"],
-    ["multiedit"],
-  ])("tool=%s (non-self-script) => mutation", (tool) => {
-    // Use args that won't trigger self-script detection
-    const call: GuardCall = { tool, args: { filePath: "src/foo.txt" } };
-    expect(classify(call, policy)).toBe("mutation");
-  });
+  it.each([["write"], ["edit"], ["patch"], ["bash"], ["multiedit"]])(
+    "tool=%s (non-self-script) => mutation",
+    (tool) => {
+      // Use args that won't trigger self-script detection
+      const call: GuardCall = { tool, args: { filePath: "src/foo.txt" } };
+      expect(classify(call, policy)).toBe("mutation");
+    },
+  );
 
   it("unknown tool 'foo' => other", () => {
     expect(classify({ tool: "foo" }, policy)).toBe("other");
