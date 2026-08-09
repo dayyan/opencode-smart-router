@@ -5,11 +5,7 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "res:build": "rescript build",
-    "res:clean": "rescript clean",
-    "res:dev": "rescript build -w",
-    "build:copy-res": "node scripts/copy-res.mjs",
-    "build": "pnpm run res:build && pnpm run build:tiers && pnpm exec -- tsc --project tsconfig.build.json && pnpm exec -- rolldown --config rolldown.config.js build && pnpm run build:copy-res",
+    "build": "npm run build:tiers && npx tsc --project tsconfig.build.json && pnpm exec -- rolldown --config rolldown.config.js build",
     "build:tiers": "node --experimental-strip-types scripts/build-tiers-config.ts",
     "prebuild": "node --experimental-strip-types scripts/build-tiers-config.ts",
     "prepublishOnly": "pnpm run build && pnpm run test:gate",
@@ -57,7 +53,6 @@
   "files": [
     "src/",
     "dist/",
-    "dist/**/*.res.mjs",
     "tiers.json",
     "LICENSE",
     "README.md"
@@ -67,13 +62,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
-    "@rescript/core": "^1.6.1",
-    "@rescript/runtime": "12.3.0",
     "@types/node": "^26.1.1",
     "@vitest/coverage-v8": "^4.1.10",
     "cross-env": "^10.1.0",
-    "rescript": "12.3.0",
-    "rescript-test": "^7.0.1",
     "rolldown": "^1.2.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"

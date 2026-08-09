@@ -20,7 +20,7 @@
 // instead.
 // ---------------------------------------------------------------------------
 
-import type { reasoningLevel as ReasoningLevel } from "./Reasoning.res.mjs";
+import type { ReasoningLevel } from "./capability.js";
 
 /**
  * Static agent def snapshot taken at config time. The runtime

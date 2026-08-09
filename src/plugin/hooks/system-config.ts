@@ -14,8 +14,7 @@ import { registerTierAgents } from "../../router/agents";
 import { registerRouterCommands } from "../../router/commands";
 import type { Preset } from "../../router/config";
 import { resolveEnforcementMode } from "../../router/enforcement";
-import type { tierConfig } from "../../router/Protocol.res.mjs";
-import { assembleSystemPrompt } from "../../router/Protocol.res.mjs";
+import { assembleSystemPrompt } from "../../router/protocol";
 import { log } from "../../utils/observability";
 import type { PluginContext } from "../context";
 import type { HookPayload } from "../types";
@@ -54,7 +53,7 @@ export const handleSystemTransform = async (
   } catch (err) {
     log.warn({ event: "enforcement.resolve_failed", error: String(err) });
   }
-  (output.system as string[]).push(assembleSystemPrompt(cfg as unknown as tierConfig, orchestratorModel, enfOn));
+  (output.system as string[]).push(assembleSystemPrompt(cfg, orchestratorModel, enfOn));
 };
 
 // ---------------------------------------------------------------------------

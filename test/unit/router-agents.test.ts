@@ -2,8 +2,8 @@ import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { adaptiveSignals as AdaptiveSignals } from "../../src/reasoning/Reasoning.res.mjs";
-import { resolveReasoningOverride } from "../../src/reasoning/Reasoning.res.mjs";
+import type { AdaptiveSignals } from "../../src/reasoning/adaptive";
+import { resolveReasoningOverride } from "../../src/reasoning/policy";
 import {
   applyReasoningPatch,
   buildAgentOptions,
@@ -13,10 +13,10 @@ import {
 import type { Preset, RouterConfig } from "../../src/router/config";
 import type { TierConfig } from "../../src/router/config.types";
 import {
-  claudeAntiNarration,
-  claudeTierPrefix,
+  CLAUDE_ANTI_NARRATION,
+  CLAUDE_TIER_PREFIX,
   isClaudeModel,
-} from "../../src/router/Protocol.res.mjs";
+} from "../../src/router/protocol";
 
 let tmpHome: string;
 let tmpCwd: string;
@@ -205,7 +205,7 @@ describe("registerTierAgents", () => {
 
     registerTierAgents(opencodeConfig, preset, cfg);
 
-    const expectedPrefix = `${claudeTierPrefix["fast"]}\n\n${claudeAntiNarration}`;
+    const expectedPrefix = `${CLAUDE_TIER_PREFIX["fast"]}\n\n${CLAUDE_ANTI_NARRATION}`;
     expect(opencodeConfig.agent?.fast?.prompt).toContain(expectedPrefix);
     expect(opencodeConfig.agent?.fast?.prompt).toContain("original prompt");
   });
@@ -388,7 +388,7 @@ describe("integration — manual mode patch merges into agent def", () => {
     registerTierAgents(opencodeConfig, makePreset({ fast: tier }), cfg);
     const baseline = structuredClone(opencodeConfig.agent.fast);
 
-    const resolved = resolveReasoningOverride(tier, cfg.reasoningPolicy as unknown as Parameters<typeof resolveReasoningOverride>[1], "max", emptySignals);
+    const resolved = resolveReasoningOverride(tier, cfg.reasoningPolicy, "max", emptySignals);
     expect(resolved).not.toBeNull();
     applyReasoningPatch(opencodeConfig.agent.fast, resolved!);
 
@@ -405,7 +405,7 @@ describe("integration — manual mode patch merges into agent def", () => {
     registerTierAgents(opencodeConfig, makePreset({ fast: tier }), cfg);
     const baseline = structuredClone(opencodeConfig.agent.fast);
 
-    const resolved = resolveReasoningOverride(tier, cfg.reasoningPolicy as unknown as Parameters<typeof resolveReasoningOverride>[1], "max", emptySignals);
+    const resolved = resolveReasoningOverride(tier, cfg.reasoningPolicy, "max", emptySignals);
     // The primary regression guard: even when the caller asks for `max`,
     // a `none`-capability tier resolves to null.
     expect(resolved).toBeNull();
@@ -421,7 +421,7 @@ describe("integration — manual mode patch merges into agent def", () => {
     registerTierAgents(opencodeConfig, makePreset({ fast: tier }), cfg);
     const baseline = structuredClone(opencodeConfig.agent.fast);
 
-    const resolved = resolveReasoningOverride(tier, cfg.reasoningPolicy as unknown as Parameters<typeof resolveReasoningOverride>[1], "max", emptySignals);
+    const resolved = resolveReasoningOverride(tier, cfg.reasoningPolicy, "max", emptySignals);
     expect(resolved).toBeNull();
 
     applyReasoningPatch(opencodeConfig.agent.fast, resolved);
@@ -457,14 +457,14 @@ describe("registerTierAgents — five tiers with five Claude prefixes", () => {
   it("applies light Claude prefix to light-tier Claude model", () => {
     const opencodeConfig: Record<string, any> = {};
     registerTierAgents(opencodeConfig, fiveTierPreset, fiveTierCfg);
-    const expectedPrefix = `${claudeTierPrefix["light"]}\n\n${claudeAntiNarration}`;
+    const expectedPrefix = `${CLAUDE_TIER_PREFIX["light"]}\n\n${CLAUDE_ANTI_NARRATION}`;
     expect(opencodeConfig.agent?.light?.prompt).toContain(expectedPrefix);
   });
 
   it("applies focused Claude prefix to focused-tier Claude model", () => {
     const opencodeConfig: Record<string, any> = {};
     registerTierAgents(opencodeConfig, fiveTierPreset, fiveTierCfg);
-    const expectedPrefix = `${claudeTierPrefix["focused"]}\n\n${claudeAntiNarration}`;
+    const expectedPrefix = `${CLAUDE_TIER_PREFIX["focused"]}\n\n${CLAUDE_ANTI_NARRATION}`;
     expect(opencodeConfig.agent?.focused?.prompt).toContain(expectedPrefix);
   });
 

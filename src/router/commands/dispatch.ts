@@ -28,7 +28,7 @@ import {
   saveEnforcementMode,
   saveReasoningMode,
 } from "../config";
-import { getActiveTiers } from "../Protocol.res.mjs";
+import { getActiveTiers } from "../protocol";
 import {
   buildBudgetOutput,
   buildPresetOutput,

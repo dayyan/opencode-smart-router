@@ -21,11 +21,11 @@
 // `handleToolExecuteAfter` stays as-is.
 // ---------------------------------------------------------------------------
 
-import { guardAfterCall } from "../../guard/Guard.res.mjs";
+import { guardAfterCall } from "../../guard/enforce";
 import { restoreAgentBaseline } from "../../router/agents";
 import { READ_ONLY_TOOLS } from "../../router/tools";
 import { log } from "../../utils/observability";
-import { verifyTaskAfterHook } from "../../verify/dispatch-io";
+import { verifyTaskAfterHook } from "../../verify/dispatch";
 import type { PluginContext } from "../context";
 import { asToolCallInput, type HookPayload } from "../types";
 import {
@@ -136,8 +136,8 @@ export const handleToolExecuteAfter = async (
         tier: ctx.sessionStore.getTier(sid),
         sessionID: sid,
         tool,
-        toolArgs: input?.args as Record<string, unknown> | null,
-        output: { output: (output as Record<string, unknown>).output as unknown | null },
+        toolArgs: input?.args,
+        output,
         store: ctx.guardStore,
       });
     } catch {
