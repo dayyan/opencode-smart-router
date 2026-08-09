@@ -773,6 +773,9 @@ declare module "*Guard.res.mjs" {
   // Router config minimal shape
   export type routerConfigMinimal = {
     enforcement?: {
+      envGate?: string;
+      mode?: "off" | "advisory" | "enforced";
+      perTier?: Record<string, "off" | "advisory" | "enforced">;
       guard?: {
         budget?: number;
         readDraftCap?: number;

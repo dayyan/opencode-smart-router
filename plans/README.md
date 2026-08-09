@@ -43,12 +43,30 @@ your row when done.
 | 027  | Document test commands in README | P3 | S | LOW | — | DONE |
 | 028  | Eliminate all 162 ReScript compiler warnings via mechanical migration to @rescript/core | P2 | M | LOW | — | DONE |
 
+Audit cycle 4 added on 2026-08-08 against commit `c809a0e` (022-refresh, 029, 030, 031).
+See "### Audit cycle 4" below for the reconciliation notes.
+
+| Plan | Title | Priority | Effort | Risk | Depends on | Status |
+|------|-------|----------|--------|------|------------|--------|
+| 022  | Add Light and Focused Routing Tiers (REFRESHED — residue only) | P1 | M | MED | — | TODO (config DONE; residue = checker.ts + sessions.ts) |
+| 029  | Fail closed on enforced-mode guard errors | P1 | S | MED | — | TODO |
+| 030  | Make coverage a real verification gate (separate `test:gate` script) | P2 | S | LOW | — | TODO |
+| 031  | Pass only the configured env-gate variable into guard evaluation | P2 | S | LOW–MED | 029 (same-file sequencing) | TODO |
+| 032  | Align Guard Resolver envGate Access Path With the Typed Config | P1 | S | LOW | 031 | DONE (SDD cycle, obs #4084–4090) |
+| 033  | Restore 1:1 TypeScript Parity in the ReScript Guard Engine | P1 | M | LOW–MED | — | DONE |
+
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale).
 
 > Note: Plan files `017-*.md` through `022-*.md` exist on disk but were
 > authored outside this index (SDD mid-cycle artifacts). They are NOT
 > tracked in the table above. Inspect those files directly if you need
 > their status; they are not part of audit cycles 1–3.
+
+> **Exception (2026-08-08):** Plan 022 is now tracked above after a refresh.
+> Its config steps had landed (presets have 5 tiers) but its code-cleanup
+> steps were obsolete (the resolver now exists as `TierLadder.res`) or
+> incomplete (`checker.ts` + `sessions.ts` still hard-code). The refresh
+> narrows 022 to its un-done residue — see the banner inside the file.
 
 ## Dependency notes
 
@@ -120,6 +138,54 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
   separate semantic concerns.
 - **S3 (investigate the 13 pre-existing vitest failures) is REJECTED** —
   see "Findings considered and rejected → Audit cycle 3" below.
+
+### Audit cycle 4 — new plans (2026-08-08, commit `c809a0e`)
+
+Four findings selected from a fresh improve audit (engram obs #4057). All
+fixes land in **TypeScript** files even though three touch the ReScript
+boundary — pure logic is ReScript (`Guard.res`, `TierLadder.res`), but the
+plugin hook layer, session classification, checker, and config are TS.
+
+- **022 (REFRESHED)** — the five-tier expansion was partially done. Config
+  landed; the resolver now exists as `src/router/TierLadder.res:19`
+  (`resolveLadder`, tested in `TierLadder_test.res`). Only two TS sites
+  remain: `src/verify/checker.ts:61` (`["fast","medium","heavy"]` default)
+  and `src/router/sessions.ts:134` (`tier !== "fast"` in `classifyTrivial`,
+  a gap the original 022 never covered). Do NOT create `tier-ladder.ts`
+  (Step 1 is obsolete); wire TS to the ReScript resolver. Provenance body
+  retained inside the file.
+- **029** — enforced-mode guard errors fail-open (`tool-guards.ts:326-328`
+  bare `catch { return }`). Fix closes the path only for `mode === "enforced"`;
+  advisory/off stay fail-soft but gain a `log.warn`. Uses the existing
+  `resolveEnforcementMode`.
+- **030** — coverage thresholds exist (`vitest.config.ts:33-43`) but the
+  default `pnpm test` never collects coverage, so the gate is inert. User
+  chose option B: a SEPARATE `test:gate` script (`vitest run --coverage`)
+  + `prepublishOnly` chain; `pnpm test` stays fast. Do NOT lower threshold
+  values to make it pass.
+- **031** — `tool-guards.ts:322-325` copies all of `process.env` into the
+  guard; `Guard.res` reads only `env[gateName]`. Pass a one-key allowlist
+  `{ [envGate]: ... }` instead. Audit confirmed no second env reader.
+
+**Dependency / ordering:**
+
+- **029 and 031 BOTH edit `src/plugin/hooks/tool-guards.ts`** — execute
+  sequentially on one branch (029 first — catch block — then 031 — env
+  construction), or merge one before starting the other. 031 should reuse
+  029's `cfg` reference rather than reading cfg twice.
+- **030 is file-disjoint and should land FIRST** so the new coverage gate
+  catches any regression 029 / 031 / 022 introduce.
+- **022-refresh is file-disjoint** (checker.ts + sessions.ts + rescript d.ts).
+
+Recommended order: **030 → 029 → 031 → 022-refresh**.
+
+**Rejected as unsupported (not planned):** duplicate Biome dependency (no
+evidence of a duplicate `biome` entry), TypeScript 7 incompatibility
+(speculative), incomplete grader/verification implementation (verification is
+production-grade per `docs/VERIFICATION.md`), provider preset asymmetry
+(unverified), cost-telemetry gap (trajectory tracks `costUnits` already — a
+spike, not a bug), incomplete secret scrubbing (no proven exfiltration sink).
+`pnpm audit --prod` reported no critical/high advisories.
 
 ## Verification commands (apply to every plan)
 

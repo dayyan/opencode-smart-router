@@ -82,7 +82,7 @@ let _WRITE_TOOLS = Js_dict.fromArray([
 
 function makePolicyDefault() {
   return {
-    budget: 8,
+    budget: 25,
     readDraftCap: 3,
     sameOpRetryCap: 1,
     blockSelfScript: true,
@@ -204,6 +204,10 @@ function _hasBashC(cmd) {
   return (/\bbash\s+-c\b/i.test(cmd));
 }
 
+function _jsonToString(v) {
+  return ((function(v) { return v == null ? "" : String(v); })(v));
+}
+
 function newGuardState(policy) {
   return {
     budget: policy.budget,
@@ -223,12 +227,12 @@ function newGuardState(policy) {
 
 function _fingerprintToolCall(tool, args) {
   return ((function(tool, args) {
-      var a = args || {};
+      var a = args ?? {};
       switch (tool) {
-        case 'read': return 'read:' + (a.file_path || a.filePath || '');
-        case 'grep': return 'grep:' + (a.pattern || '') + ':' + (a.path || a.glob || '');
-        case 'glob': return 'glob:' + (a.pattern || '') + ':' + (a.path || '');
-        case 'ls': return 'ls:' + (a.path || '');
+        case 'read': return 'read:' + (a.file_path ?? a.filePath ?? '');
+        case 'grep': return 'grep:' + (a.pattern ?? '') + ':' + (a.path ?? a.glob ?? '');
+        case 'glob': return 'glob:' + (a.pattern ?? '') + ':' + (a.path ?? '');
+        case 'ls': return 'ls:' + (a.path ?? '');
         default: return tool + ':' + JSON.stringify(a).slice(0, 120);
       }
     })(tool, args));
@@ -240,14 +244,14 @@ function isSelfScript(call, policy) {
   let v = Js_dict.get(args, "filePath");
   let target;
   if (v !== undefined) {
-    target = JSON.stringify(v);
+    target = _jsonToString(v);
   } else {
     let v$1 = Js_dict.get(args, "path");
     if (v$1 !== undefined) {
-      target = JSON.stringify(v$1);
+      target = _jsonToString(v$1);
     } else {
       let v$2 = Js_dict.get(args, "file");
-      target = v$2 !== undefined ? JSON.stringify(v$2) : "";
+      target = v$2 !== undefined ? _jsonToString(v$2) : "";
     }
   }
   let match = policy.deliverableIsScript;
@@ -464,10 +468,8 @@ function forcingMessage(state, policy) {
 
 function trajectoryMetrics(state) {
   let ratio = state.execCount === 0 ? state.readCount : state.readCount / state.execCount;
-  let v = state.ttfa;
-  let ttfaVal = !(v == null) ? v : 0;
   return ((function() { return arguments[0]; }))({
-    ttfa: ttfaVal,
+    ttfa: state.ttfa,
     read_exec_ratio: ratio,
     self_script_count: state.selfScriptCount,
     tool_call_count: state.toolCallCount,
@@ -561,17 +563,19 @@ function formatScorecard(state, tier) {
 function _resolveEnforcementMode(params) {
   return ((function(params) {
       var enf = params.config && params.config.enforcement;
-      var gateName = (enf && enf.guard && enf.guard.envGate) || 'MODEL_ROUTER_ENFORCE';
+      var gateName = enf && enf.envGate != null ? enf.envGate : 'MODEL_ROUTER_ENFORCE';
       var raw = params.env && params.env[gateName];
-      // Env gate overrides
-      if (raw === '1') return { mode: 'enforced' };
-      if (raw === '0') return { mode: 'off' };
-      // Config resolution
+      if (raw === '1') return { mode: 'enforced', warning: null };
+      if (raw === '0') return { mode: 'off', warning: null };
+      var warning = null;
+      if (raw !== undefined && raw !== null && raw !== '') {
+        warning = gateName + '="' + raw + '" is not "1" or "0"; ignoring env gate and using config.';
+      }
       var base = (enf && enf.mode) || 'advisory';
       if (params.tier !== undefined && enf && enf.perTier && enf.perTier[params.tier] !== undefined) {
         base = enf.perTier[params.tier];
       }
-      return { mode: base };
+      return { mode: base, warning: warning };
     })(params));
 }
 

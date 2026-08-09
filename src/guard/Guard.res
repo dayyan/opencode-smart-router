@@ -180,7 +180,7 @@ type makePolicyPartial = {
 
 let makePolicyDefault = (): guardPolicy => {
   {
-    budget: 8,
+    budget: defaultGuardBudget,
     readDraftCap: 3,
     sameOpRetryCap: 1,
     blockSelfScript: true,
@@ -272,6 +272,9 @@ type updateStateOpts = {ok: bool}
 // minimal RouterConfig shape for guard policy building
 type routerConfigMinimal = {
   enforcement: option<{
+    envGate: option<string>,
+    mode: option<string>,
+    perTier: option<Js.Dict.t<string>>,
     guard: option<{
       budget: option<int>,
       readDraftCap: option<int>,
@@ -310,7 +313,10 @@ type guardAfterCallParams = {
 }
 
 // resolveEnforcementMode result
-type resolveEnforcementModeResult = {mode: string}
+type resolveEnforcementModeResult = {
+  mode: string,
+  warning: Js.Nullable.t<string>,
+}
 
 // resolveEnforcementMode params
 type resolveEnforcementModeParams = {
@@ -365,6 +371,15 @@ let _hasBashC = (cmd: string): bool => {
   %raw(`/\bbash\s+-c\b/i.test(cmd)`)
 }
 
+// _jsonToString: converts JSON value to raw string (no JSON quotes)
+// TS equivalent: String(v) — preserves empty string, null → ""
+@setRuntimeSideEffects
+let _jsonToString = (v: Js.Json.t): string => {
+  %raw(`
+    (function(v) { return v == null ? "" : String(v); })(v)
+  `)
+}
+
 // _stringifyArgs: converts args to a JSON string for fingerprinting
 @setRuntimeSideEffects
 let _stringifyArgs = (args: Js.Dict.t<Js.Json.t>): string => {
@@ -400,12 +415,12 @@ let newGuardState = (policy: guardPolicy): guardState => {
 let _fingerprintToolCall = (tool: string, args: Js.Dict.t<Js.Json.t>): string => {
   %raw(`
     (function(tool, args) {
-      var a = args || {};
+      var a = args ?? {};
       switch (tool) {
-        case 'read': return 'read:' + (a.file_path || a.filePath || '');
-        case 'grep': return 'grep:' + (a.pattern || '') + ':' + (a.path || a.glob || '');
-        case 'glob': return 'glob:' + (a.pattern || '') + ':' + (a.path || '');
-        case 'ls': return 'ls:' + (a.path || '');
+        case 'read': return 'read:' + (a.file_path ?? a.filePath ?? '');
+        case 'grep': return 'grep:' + (a.pattern ?? '') + ':' + (a.path ?? a.glob ?? '');
+        case 'glob': return 'glob:' + (a.pattern ?? '') + ':' + (a.path ?? '');
+        case 'ls': return 'ls:' + (a.path ?? '');
         default: return tool + ':' + JSON.stringify(a).slice(0, 120);
       }
     })(tool, args)
@@ -423,13 +438,13 @@ let isSelfScript = (call: guardCall, policy: guardPolicy): bool => {
     | None => Js.Dict.empty()
   }
   let target = switch args->Js.Dict.get("filePath") {
-    | Some(v) => v->Js.Json.stringify
+    | Some(v) => v->_jsonToString
     | None =>
       switch args->Js.Dict.get("path") {
-      | Some(v) => v->Js.Json.stringify
+      | Some(v) => v->_jsonToString
       | None =>
         switch args->Js.Dict.get("file") {
-        | Some(v) => v->Js.Json.stringify
+        | Some(v) => v->_jsonToString
         | None => ""
         }
       }
@@ -777,13 +792,9 @@ let trajectoryMetrics = (state: guardState): Js.Dict.t<unknown> => {
   } else {
     Belt.Float.fromInt(state.readCount) /. Belt.Float.fromInt(state.execCount)
   }
-  let ttfaVal = switch state.ttfa->Js.Nullable.toOption {
-    | Some(v) => v
-    | None => 0
-  }
   // Pass local values explicitly to IIFE since %raw cannot capture let bindings
   %raw(`(function() { return arguments[0]; })`)({
-    "ttfa": ttfaVal,
+    "ttfa": state.ttfa,
     "read_exec_ratio": ratio,
     "self_script_count": state.selfScriptCount,
     "tool_call_count": state.toolCallCount,
@@ -923,17 +934,19 @@ let _resolveEnforcementMode = (params: resolveEnforcementModeParams): resolveEnf
   %raw(`
     (function(params) {
       var enf = params.config && params.config.enforcement;
-      var gateName = (enf && enf.guard && enf.guard.envGate) || 'MODEL_ROUTER_ENFORCE';
+      var gateName = enf && enf.envGate != null ? enf.envGate : 'MODEL_ROUTER_ENFORCE';
       var raw = params.env && params.env[gateName];
-      // Env gate overrides
-      if (raw === '1') return { mode: 'enforced' };
-      if (raw === '0') return { mode: 'off' };
-      // Config resolution
+      if (raw === '1') return { mode: 'enforced', warning: null };
+      if (raw === '0') return { mode: 'off', warning: null };
+      var warning = null;
+      if (raw !== undefined && raw !== null && raw !== '') {
+        warning = gateName + '="' + raw + '" is not "1" or "0"; ignoring env gate and using config.';
+      }
       var base = (enf && enf.mode) || 'advisory';
       if (params.tier !== undefined && enf && enf.perTier && enf.perTier[params.tier] !== undefined) {
         base = enf.perTier[params.tier];
       }
-      return { mode: base };
+      return { mode: base, warning: warning };
     })(params)
   `)
 }

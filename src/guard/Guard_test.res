@@ -675,3 +675,25 @@ test("TERMINATION: model that only tries DIFFERENT reads is blocked by clause 5 
   assertionIsFalse(~operator="read_budget triggered", d.allow)
   assertionEqual(~operator="read_budget guard", d.guard, Js.Nullable.return("read_budget"))
 })
+
+// ---------------------------------------------------------------------------
+// TS parity regression tests (Plan 033)
+// ---------------------------------------------------------------------------
+
+test("isSelfScript: deliverablePath matches unquoted string target (TS parity)", () => {
+  // Target must be "/src/app.ts" (no JSON quotes) to match deliverablePath
+  let p = Guard.makePolicyWithDeliverablePath("/src/app.ts")
+  let args = Js.Dict.fromArray([("filePath", Js.Json.string("/src/app.ts"))])
+  let call: Guard.guardCall = {tool: "write", args: Js.Nullable.return(args)}
+  assertionIsFalse(~operator="deliverablePath match", Guard.isSelfScript(call, p))
+})
+
+test("trajectoryMetrics: ttfa=null when no producing action (TS parity)", () => {
+  let p = Guard.makePolicyDefault()
+  let s = Guard.newGuardState(p)
+  // Do NOT set ttfa — it should remain null (not converted to 0)
+  let m = Guard.trajectoryMetrics(s)
+  let ttfaRaw = (Obj.magic(m)["ttfa"] :> Js.Nullable.t<int>)
+  // ttfa should be null, not 0 — verify with Js.Nullable.isNullable
+  assertionIsTrue(~operator="ttfa is null", Js.Nullable.isNullable(ttfaRaw))
+})

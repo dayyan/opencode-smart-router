@@ -905,6 +905,28 @@ Test.test("TERMINATION: model that only tries DIFFERENT reads is blocked by clau
   assertionEqual("read_budget guard", d.guard, "read_budget");
 });
 
+Test.test("isSelfScript: deliverablePath matches unquoted string target (TS parity)", () => {
+  let p = Guard.makePolicyWithDeliverablePath("/src/app.ts");
+  let args = Js_dict.fromArray([[
+      "filePath",
+      "/src/app.ts"
+    ]]);
+  let call_args = Primitive_option.some(args);
+  let call = {
+    tool: "write",
+    args: call_args
+  };
+  assertionIsFalse("deliverablePath match", Guard.isSelfScript(call, p));
+});
+
+Test.test("trajectoryMetrics: ttfa=null when no producing action (TS parity)", () => {
+  let p = Guard.makePolicyDefault();
+  let s = Guard.newGuardState(p);
+  let m = Guard.trajectoryMetrics(s);
+  let ttfaRaw = m.ttfa;
+  assertionIsTrue("ttfa is null", (ttfaRaw == null));
+});
+
 export {
   assertionEqual,
   assertionTrue,

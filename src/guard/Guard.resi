@@ -89,6 +89,9 @@ type updateStateOpts = {ok: bool}
 // minimal RouterConfig shape for guard policy building
 type routerConfigMinimal = {
   enforcement: option<{
+    envGate: option<string>,
+    mode: option<string>,
+    perTier: option<Js.Dict.t<string>>,
     guard: option<{
       budget: option<int>,
       readDraftCap: option<int>,
