@@ -61,11 +61,12 @@
     "@opencode-ai/plugin": ">=1.0.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.4",
-    "@types/node": "^26.1.1",
+    "@opencode-ai/plugin": "1.18.15",
+    "@biomejs/biome": "^2.5.7",
+    "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "^4.1.10",
     "cross-env": "^10.1.0",
-    "rolldown": "^1.2.0",
+    "rolldown": "^1.2.3",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   }
