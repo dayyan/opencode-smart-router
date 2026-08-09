@@ -486,7 +486,7 @@
     },
     "multi-provider": {
       "fast": {
-        "model": "minimax-coding-plan/MiniMax-M2.5",
+        "model": "minimax-coding-plan/MiniMax-M2.1",
         "costRatio": 1,
         "description": "Scout: read-only codebase reconnaissance. Parallel search, grep, glob, file reads, quick lookups. Never modifies files; routes edits back.",
         "steps": 30,
@@ -501,21 +501,12 @@
         ]
       },
       "light": {
-        "model": "openai/gpt-5.6-luna",
+        "model": "minimax-coding-plan/MiniMax-M2.5",
         "costRatio": 2,
         "description": "Patcher: surgical single-file edits from a complete spec. Simple fixes, config tweaks, localized refactoring. Escalates on cross-file scope growth.",
         "steps": 40,
-        "reasoning": {
-          "effort": "medium"
-        },
         "capability": {
-          "kind": "discrete",
-          "field": "reasoning.effort",
-          "levels": [
-            "low",
-            "medium",
-            "high"
-          ]
+          "kind": "none"
         },
         "whenToUse": [
           "Simple edits and small fixes within one file",
