@@ -26,12 +26,13 @@
 
 import type { beforeResult as BeforeResult } from "../../guard/Guard.res.mjs";
 import { guardBeforeCall } from "../../guard/Guard.res.mjs";
+import { resolveEnforcementMode, type EnforcementMode } from "../../router/enforcement";
 // Type imports from original TS files (type definitions preserved for backward compat)
 import type { adaptiveSignals as AdaptiveSignals } from "../../reasoning/Reasoning.res.mjs";
 // Value imports from ReScript facade
 import { selectAdaptiveLevel, normalizeSignalText, resolveReasoningOverride } from "../../reasoning/Reasoning.res.mjs";
 import { applyReasoningPatch } from "../../router/agents";
-import type { TierConfig } from "../../router/config";
+import type { RouterConfig, TierConfig } from "../../router/config";
 import type { tierConfig } from "../../router/Protocol.res.mjs";
 import { getActiveTiers } from "../../router/Protocol.res.mjs";
 import { READ_ONLY_TOOLS } from "../../router/tools";
@@ -308,9 +309,38 @@ export const runSubagentGuard = async (params: {
     );
   }
 
+  // Phase 1 of plan 029: resolve the enforcement mode BEFORE invoking
+  // guardBeforeCall so the catch can branch correctly on mode.
+  // If mode resolution itself fails, default to advisory (fail-soft) and warn.
+  let cfg: RouterConfig | undefined;
+  let mode: EnforcementMode = "advisory";
+  try {
+    cfg = await ctx.getConfig();
+    mode = resolveEnforcementMode({
+      config: cfg,
+      tier: ctx.sessionStore.getTier(sid) ?? undefined,
+      env: process.env,
+    }).mode;
+  } catch (err) {
+    log.warn({
+      event: "guard.mode_resolve_failed",
+      session: sid,
+      tool,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return; // fail-soft — no cfg/mode means no guard
+  }
+
+  // Pass only the configured gate key, not the full process.env (plan 031).
+  // envGate is top-level on EnforcementConfig (config.types.ts:59), matching the
+  // pre-ReScript resolver (enforcement.ts:32) and Guard.res resolver (plan 032).
+  const gateName = cfg?.enforcement?.envGate ?? "MODEL_ROUTER_ENFORCE";
+  const guardEnv: Record<string, string | null> = {
+    [gateName]: process.env[gateName] ?? null,
+  };
+
   let res: BeforeResult;
   try {
-    const cfg = await ctx.getConfig();
     res = guardBeforeCall({
       cfg,
       tier: ctx.sessionStore.getTier(sid),
@@ -319,12 +349,29 @@ export const runSubagentGuard = async (params: {
       tool,
       toolArgs: (output?.args as Record<string, unknown> | undefined) ?? null,
       store: ctx.guardStore,
-      env: Object.fromEntries(
-        Object.entries(process.env).map(([k, v]) => [k, v ?? null]),
-      ) as Record<string, string | null>,
+      env: guardEnv,
     });
-  } catch {
-    return; // never break a real session on a guard-internal error
+  } catch (err) {
+    if (mode === "enforced") {
+      // Fail closed: enforcement is unavailable because the guard itself crashed.
+      log.warn({
+        event: "guard.enforce_failed_closed",
+        session: sid,
+        tool,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw new Error("enforcement unavailable: guard evaluation failed; failing closed");
+    }
+    // Fail soft: guard-internal errors do not break real sessions in
+    // advisory/off mode. Emit a structured warning so operators can observe it.
+    log.warn({
+      event: "guard.advisory_failed_soft",
+      session: sid,
+      tool,
+      mode,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return;
   }
   if (res.block) {
     ctx.trajectoryStore.recordToolEvent(sid, {

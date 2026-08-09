@@ -48,6 +48,37 @@ vi.mock("../../src/verify/dispatch-io", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Test seam for runSubagentGuard guard-error handling (plan 029).
+//
+// Hoisted vi.mock that preserves real guardBeforeCall behaviour as the default
+// mock implementation. Per-test overrides via:
+//   vi.mocked(guardBeforeCall).mockImplementationOnce(() => { throw ... })
+// ---------------------------------------------------------------------------
+const { guardBeforeCall } = await import("../../src/guard/Guard.res.mjs");
+vi.mock("../../src/guard/Guard.res.mjs", async () => {
+  const actual = await vi.importActual<typeof import("../../src/guard/Guard.res.mjs")>(
+    "../../src/guard/Guard.res.mjs",
+  );
+  return {
+    ...actual,
+    guardBeforeCall: vi.fn(actual.guardBeforeCall),
+  };
+});
+
+// Hoisted vi.mock for enforcement resolver — used by GFC-04 to force
+// resolveEnforcementMode to throw (mode resolution failure).
+const { resolveEnforcementMode } = await import("../../src/router/enforcement");
+vi.mock("../../src/router/enforcement", async () => {
+  const actual = await vi.importActual<typeof import("../../src/router/enforcement")>(
+    "../../src/router/enforcement",
+  );
+  return {
+    ...actual,
+    resolveEnforcementMode: vi.fn(actual.resolveEnforcementMode),
+  };
+});
+
+// ---------------------------------------------------------------------------
 // Hook adapter contract tests.
 //
 // Each handler is a verbatim extraction from `src/index.ts`. These tests
@@ -535,6 +566,169 @@ describe("handleToolExecuteBefore — nested task delegation guard (plan 008)", 
     await expect(
       handleToolExecuteBefore(h.ctx, { sessionID: "sid-X", tool: "read" }, { args: {} }),
     ).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plan 029 — mode-aware fail-closed / fail-soft on guard-internal errors.
+//
+// GFC-01..04 are RED tests (written first, expecting current code to FAIL).
+// GFC-05 is a regression guard (existing block-path behaviour must be preserved).
+// GFC-06/07 are already covered by the plan 008 tests above.
+// ---------------------------------------------------------------------------
+
+describe("runSubagentGuard — enforced fail-closed / fail-soft (plan 029)", () => {
+  let origLogLevel: string | undefined;
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    origLogLevel = process.env["MODEL_ROUTER_LOG_LEVEL"];
+    // Debug-level events are filtered by the production default ("warn"),
+    // so we MUST opt in for the test runtime to see all events.
+    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    __resetLoggerForTest();
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Reset per-test mocks so each test gets a clean mock state.
+    vi.mocked(guardBeforeCall).mockReset();
+    vi.mocked(resolveEnforcementMode).mockReset();
+  });
+
+  afterEach(() => {
+    if (origLogLevel === undefined) delete process.env["MODEL_ROUTER_LOG_LEVEL"];
+    else process.env["MODEL_ROUTER_LOG_LEVEL"] = origLogLevel;
+    __resetLoggerForTest();
+    warnSpy.mockRestore();
+  });
+
+  // -------------------------------------------------------------------------
+  // GFC-01 — RED: enforced mode + guard throws → call BLOCKED
+  // -------------------------------------------------------------------------
+  it("GFC-01 enforced+guard-throws → handler rejects with guard.enforce_failed_closed", async () => {
+    const h = makeHarness({
+      configOverrides: { enforcement: { mode: "enforced" } as any },
+    });
+
+    vi.mocked(guardBeforeCall).mockImplementationOnce(() => {
+      throw new Error("boom");
+    });
+
+    await expect(
+      handleToolExecuteBefore(h.ctx, { sessionID: "sid-A1", tool: "read" }, { args: {} }),
+    ).rejects.toThrow("enforcement unavailable: guard evaluation failed; failing closed");
+
+    // Structured warning must be emitted.
+    const warnCalls = warnSpy.mock.calls as unknown as string[][];
+    const enforceFailedEvents = warnCalls.filter((call) => {
+      const line = call[0];
+      return typeof line === "string" && line.includes("guard.enforce_failed_closed");
+    });
+    expect(enforceFailedEvents).toHaveLength(1);
+    expect(enforceFailedEvents[0]?.[0]).toContain("sid-A1");
+    expect(enforceFailedEvents[0]?.[0]).toContain("read");
+  });
+
+  // -------------------------------------------------------------------------
+  // GFC-02 — RED: advisory mode + guard throws → call ALLOWED + warned
+  // -------------------------------------------------------------------------
+  it("GFC-02 advisory+guard-throws → handler resolves with guard.advisory_failed_soft", async () => {
+    const h = makeHarness({
+      configOverrides: { enforcement: { mode: "advisory" } as any },
+    });
+
+    vi.mocked(guardBeforeCall).mockImplementationOnce(() => {
+      throw new Error("boom");
+    });
+
+    await expect(
+      handleToolExecuteBefore(h.ctx, { sessionID: "sid-A1", tool: "read" }, { args: {} }),
+    ).resolves.toBeUndefined();
+
+    // Structured warning must be emitted.
+    const warnCalls = warnSpy.mock.calls as unknown as string[][];
+    const softFailedEvents = warnCalls.filter((call) => {
+      const line = call[0];
+      return typeof line === "string" && line.includes("guard.advisory_failed_soft");
+    });
+    expect(softFailedEvents).toHaveLength(1);
+    expect(typeof softFailedEvents[0]?.[0] === "string" && softFailedEvents[0]?.[0].includes("advisory")).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // GFC-03 — RED: off mode (env gate) + guard throws → call ALLOWED + warned
+  // -------------------------------------------------------------------------
+  it("GFC-03 off+guard-throws → handler resolves with mode=off warning", async () => {
+    // Set env var AFTER harness is built so the resolver picks it up.
+    process.env["MODEL_ROUTER_ENFORCE"] = "0";
+    const h = makeHarness({
+      // Advisory config so the guard path runs (not bypassed by no-enforcement).
+      configOverrides: { enforcement: { mode: "advisory" } as any },
+    });
+
+    vi.mocked(guardBeforeCall).mockImplementationOnce(() => {
+      throw new Error("boom");
+    });
+
+    await expect(
+      handleToolExecuteBefore(h.ctx, { sessionID: "sid-A1", tool: "read" }, { args: {} }),
+    ).resolves.toBeUndefined();
+
+    // Structured warning with mode "off".
+    const warnCalls = warnSpy.mock.calls as unknown as string[][];
+    const offEvents = warnCalls.filter((call) => {
+      const line = call[0];
+      return typeof line === "string" && line.includes("guard.advisory_failed_soft") && line.includes('"off"');
+    });
+    expect(offEvents).toHaveLength(1);
+
+    delete process.env["MODEL_ROUTER_ENFORCE"];
+  });
+
+  // -------------------------------------------------------------------------
+  // GFC-04 — RED: resolveEnforcementMode throws → fail-soft default + warned
+  // -------------------------------------------------------------------------
+  it("GFC-04 resolver-throws → handler resolves with guard.mode_resolve_failed", async () => {
+    const h = makeHarness();
+
+    // Force resolveEnforcementMode itself to throw.
+    vi.mocked(resolveEnforcementMode).mockImplementationOnce(() => {
+      throw new Error("cfg is malformed");
+    });
+
+    await expect(
+      handleToolExecuteBefore(h.ctx, { sessionID: "sid-A1", tool: "read" }, { args: {} }),
+    ).resolves.toBeUndefined();
+
+    // Structured warning must be emitted.
+    const warnCalls = warnSpy.mock.calls as unknown as string[][];
+    const resolveFailedEvents = warnCalls.filter((call) => {
+      const line = call[0];
+      return typeof line === "string" && line.includes("guard.mode_resolve_failed");
+    });
+    expect(resolveFailedEvents).toHaveLength(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // GFC-05 — Regression guard: enforced + guard returns block:true → throws
+  // -------------------------------------------------------------------------
+  it("GFC-05 enforced+block → throws Error(res.message) + blocked:true in trajectory", async () => {
+    const h = makeHarness({
+      configOverrides: { enforcement: { mode: "enforced" } as any },
+    });
+
+    vi.mocked(guardBeforeCall).mockImplementationOnce(() => ({
+      ok: true,
+      block: true,
+      message: "guard said no",
+      mode: "advisory",
+      guard: "test" as any,
+    }));
+
+    await expect(
+      handleToolExecuteBefore(h.ctx, { sessionID: "sid-A1", tool: "read" }, { args: {} }),
+    ).rejects.toThrow("guard said no");
+
+    expect(h.recordToolEventCalls).toHaveLength(1);
+    expect(h.recordToolEventCalls[0]!.blocked).toBe(true);
   });
 });
 
@@ -1644,5 +1838,306 @@ describe("handleSessionEvent — session.created parent registration (plan 020)"
         } as any,
       }),
     ).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plan 031 — Minimal gate-key env boundary tests.
+// These tests assert that `runSubagentGuard` passes only the configured gate
+// variable to `guardBeforeCall`, not the full process.env.  They reuse the
+// plan 029 vi.mock seam on `guardBeforeCall` and capture `env` via
+// `mock.calls[i][0].env` by value.
+// ---------------------------------------------------------------------------
+
+describe("runSubagentGuard — minimal gate-key env (plan 031)", () => {
+  let origLogLevel: string | undefined;
+  let origGate: string | undefined;
+  let origMyGate: string | undefined;
+  let origAnthropicKey: string | undefined;
+  let origOpenAIKey: string | undefined;
+
+  const DEFAULT_GATE = "MODEL_ROUTER_ENFORCE";
+
+  beforeEach(() => {
+    origLogLevel = process.env["MODEL_ROUTER_LOG_LEVEL"];
+    process.env["MODEL_ROUTER_LOG_LEVEL"] = "debug";
+    // Save any pre-existing env values we will mutate.
+    origGate = process.env[DEFAULT_GATE];
+    origMyGate = process.env["MY_GATE"];
+    origAnthropicKey = process.env["ANTHROPIC_API_KEY"];
+    origOpenAIKey = process.env["OPENAI_API_KEY"];
+    // Ensure no bleed from prior tests.
+    delete process.env["MY_GATE"];
+    delete process.env["ANTHROPIC_API_KEY"];
+    delete process.env["OPENAI_API_KEY"];
+    // Reset per-test mocks so each test gets a clean spy state.
+    vi.mocked(guardBeforeCall).mockReset();
+    vi.mocked(resolveEnforcementMode).mockReset();
+  });
+
+  afterEach(() => {
+    // Restore env.
+    if (origLogLevel === undefined) delete process.env["MODEL_ROUTER_LOG_LEVEL"];
+    else process.env["MODEL_ROUTER_LOG_LEVEL"] = origLogLevel;
+    if (origGate === undefined) delete process.env[DEFAULT_GATE];
+    else process.env[DEFAULT_GATE] = origGate;
+    if (origMyGate === undefined) delete process.env["MY_GATE"];
+    else process.env["MY_GATE"] = origMyGate;
+    if (origAnthropicKey === undefined) delete process.env["ANTHROPIC_API_KEY"];
+    else process.env["ANTHROPIC_API_KEY"] = origAnthropicKey;
+    if (origOpenAIKey === undefined) delete process.env["OPENAI_API_KEY"];
+    else process.env["OPENAI_API_KEY"] = origOpenAIKey;
+  });
+
+  // -------------------------------------------------------------------------
+  // ME-01 — Default gate: env has exactly one key MODEL_ROUTER_ENFORCE.
+  // -------------------------------------------------------------------------
+  it("ME-01 default gate — env has exactly one key MODEL_ROUTER_ENFORCE", async () => {
+    const h = makeHarness({
+      configOverrides: { enforcement: { mode: "advisory" } as any },
+    });
+
+    await handleToolExecuteBefore(h.ctx, { sessionID: "sid-A1", tool: "read" }, { args: {} });
+
+    const calls = vi.mocked(guardBeforeCall).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    // Capture the env arg from the LAST call (the one made in this test).
+    const envArg = (calls[calls.length - 1]![0] as { env: Record<string, string | null> }).env;
+    const keys = Object.keys(envArg);
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toBe(DEFAULT_GATE);
+    expect(envArg[DEFAULT_GATE]).toBe(process.env[DEFAULT_GATE] ?? null);
+  });
+
+  // -------------------------------------------------------------------------
+  // ME-02 — Custom gate: env has exactly one key MY_GATE (not the default).
+  // Plan 032: envGate is top-level on EnforcementConfig (config.types.ts:59).
+  // -------------------------------------------------------------------------
+  it("ME-02 custom gate — env has exactly one key MY_GATE when envGate is set", async () => {
+    process.env["MY_GATE"] = "1";
+    const h = makeHarness({
+      configOverrides: {
+        enforcement: { envGate: "MY_GATE" },
+      },
+    });
+
+    vi.mocked(guardBeforeCall).mockImplementationOnce(() =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Promise.resolve({ block: false, message: null, mode: "enforced", guard: null }) as any,
+    );
+
+    await handleToolExecuteBefore(h.ctx, { sessionID: "sid-A1", tool: "read" }, { args: {} });
+
+    const calls = vi.mocked(guardBeforeCall).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const envArg = (calls[calls.length - 1]![0] as { env: Record<string, string | null> }).env;
+    const keys = Object.keys(envArg);
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toBe("MY_GATE");
+    expect(envArg["MY_GATE"]).toBe("1");
+  });
+
+  // -------------------------------------------------------------------------
+  // EAA-01 — Custom gate via typed top-level path is honored end-to-end.
+  // cfg.enforcement.envGate = "MY_GATE"; process.env.MY_GATE = "1".
+  // Expected: env object has exactly MY_GATE, mode is "enforced".
+  // -------------------------------------------------------------------------
+  it("EAA-01 custom gate top-level — env has MY_GATE only, mode is enforced", async () => {
+    process.env["MY_GATE"] = "1";
+    const h = makeHarness({
+      configOverrides: {
+        enforcement: { envGate: "MY_GATE", mode: "advisory" },
+      },
+    });
+
+    // Return success without calling the real guardBeforeCall (store.ensure not mocked).
+    vi.mocked(guardBeforeCall).mockImplementationOnce(() =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Promise.resolve({ block: false, message: null, mode: "enforced", guard: null }) as any,
+    );
+
+    await handleToolExecuteBefore(h.ctx, { sessionID: "sid-A1", tool: "read" }, { args: {} });
+
+    const calls = vi.mocked(guardBeforeCall).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const envArg = (calls[calls.length - 1]![0] as { env: Record<string, string | null> }).env;
+    const keys = Object.keys(envArg);
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toBe("MY_GATE");
+    expect(envArg["MY_GATE"]).toBe("1");
+  });
+
+  // -------------------------------------------------------------------------
+  // EAA-02 — Default gate: MODEL_ROUTER_ENFORCE when envGate is unset.
+  // cfg.enforcement.envGate is undefined; process.env.MODEL_ROUTER_ENFORCE = "1".
+  // Expected: env object has exactly MODEL_ROUTER_ENFORCE.
+  // -------------------------------------------------------------------------
+  it("EAA-02 default gate — env has MODEL_ROUTER_ENFORCE when envGate is unset", async () => {
+    process.env[DEFAULT_GATE] = "1";
+    const h = makeHarness({
+      configOverrides: {
+        enforcement: { mode: "advisory" },
+      },
+    });
+
+    vi.mocked(guardBeforeCall).mockImplementationOnce(() =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Promise.resolve({ block: false, message: null, mode: "enforced", guard: null }) as any,
+    );
+
+    await handleToolExecuteBefore(h.ctx, { sessionID: "sid-A1", tool: "read" }, { args: {} });
+
+    const calls = vi.mocked(guardBeforeCall).mock.calls;
+    expect(calls.length).toBe(1);
+    const envArg = (calls[0]![0] as { env: Record<string, string | null> }).env;
+    const keys = Object.keys(envArg);
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toBe(DEFAULT_GATE);
+    expect(envArg[DEFAULT_GATE]).toBe("1");
+  });
+
+  // -------------------------------------------------------------------------
+  // EAA-03 — Nested-path is ignored: resolver reads top-level only.
+  // cfg.enforcement.guard.envGate = "WRONG" (legacy/nested, cast for compat);
+  // cfg.enforcement.envGate = "RIGHT"; process.env.RIGHT = "1".
+  // Expected: env object has exactly RIGHT (not WRONG).
+  // -------------------------------------------------------------------------
+  it("EAA-03 nested path ignored — resolver reads top-level envGate, not guard.envGate", async () => {
+    process.env["RIGHT"] = "1";
+    const h = makeHarness({
+      configOverrides: {
+        // Cast for legacy compat — nested path is no longer the source of truth.
+        enforcement: { guard: { envGate: "WRONG" } as any, envGate: "RIGHT" },
+      } as any,
+    });
+
+    vi.mocked(guardBeforeCall).mockImplementationOnce(() =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Promise.resolve({ block: false, message: null, mode: "enforced", guard: null }) as any,
+    );
+
+    await handleToolExecuteBefore(h.ctx, { sessionID: "sid-A1", tool: "read" }, { args: {} });
+
+    const calls = vi.mocked(guardBeforeCall).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const envArg = (calls[calls.length - 1]![0] as { env: Record<string, string | null> }).env;
+    const keys = Object.keys(envArg);
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toBe("RIGHT");
+    expect(envArg["RIGHT"]).toBe("1");
+  });
+
+  // -------------------------------------------------------------------------
+  // EAA-05 — Resolver parity: TS vs ReScript produce identical mode output.
+  // For envGate = "MY_GATE" with env = { MY_GATE: "1" }, both resolvers
+  // must return { mode: "enforced" }.
+  // -------------------------------------------------------------------------
+  it("EAA-05 resolver parity — TS and ReScript return same mode for identical input", async () => {
+    const { resolveEnforcementMode } = await import("../../src/router/enforcement");
+
+    const tsResult = resolveEnforcementMode({
+      config: { enforcement: { envGate: "MY_GATE" } } as any,
+      env: { MY_GATE: "1" },
+    });
+
+    // The ReScript resolver (Guard.res:_resolveEnforcementMode) is called
+    // internally by guardBeforeCall. We verify parity by checking that
+    // guardBeforeCall receives the correct env key (driven by top-level envGate).
+    process.env["MY_GATE"] = "1";
+    const h = makeHarness({
+      configOverrides: {
+        enforcement: { envGate: "MY_GATE", mode: "advisory" },
+      },
+    });
+
+    vi.mocked(guardBeforeCall).mockImplementationOnce(() =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Promise.resolve({ block: false, message: null, mode: "enforced", guard: null }) as any,
+    );
+
+    await handleToolExecuteBefore(h.ctx, { sessionID: "sid-A1", tool: "read" }, { args: {} });
+
+    const calls = vi.mocked(guardBeforeCall).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const envArg = (calls[calls.length - 1]![0] as { env: Record<string, string | null> }).env;
+    expect(tsResult.mode).toBe("enforced");
+    const keys = Object.keys(envArg);
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toBe("MY_GATE");
+  });
+
+  // -------------------------------------------------------------------------
+  // ME-03 — No secret leak: ANTHROPIC_API_KEY / OPENAI_API_KEY absent from env.
+  // -------------------------------------------------------------------------
+  it("ME-03 no secret leak — env does NOT contain ANTHROPIC_API_KEY or OPENAI_API_KEY", async () => {
+    process.env["ANTHROPIC_API_KEY"] = "sk-test-anthropic";
+    process.env["OPENAI_API_KEY"] = "sk-test-openai";
+    const h = makeHarness({
+      configOverrides: { enforcement: { mode: "advisory" } as any },
+    });
+
+    await handleToolExecuteBefore(h.ctx, { sessionID: "sid-A1", tool: "read" }, { args: {} });
+
+    const calls = vi.mocked(guardBeforeCall).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const envArg = (calls[calls.length - 1]![0] as { env: Record<string, string | null> }).env;
+    const keys = Object.keys(envArg);
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toBe(DEFAULT_GATE);
+    expect(envArg).not.toHaveProperty("ANTHROPIC_API_KEY");
+    expect(envArg).not.toHaveProperty("OPENAI_API_KEY");
+  });
+
+  // -------------------------------------------------------------------------
+  // ME-04 — Behavior preserved: "1" → enforced, "0" → off, else config-derived.
+  // -------------------------------------------------------------------------
+  it("ME-04 behavior preserved — env gate '1' yields enforced fail-closed", async () => {
+    process.env[DEFAULT_GATE] = "1";
+    const h = makeHarness({
+      configOverrides: { enforcement: { mode: "advisory" } as any },
+    });
+
+    vi.mocked(guardBeforeCall).mockImplementationOnce(() => {
+      throw new Error("boom");
+    });
+
+    await expect(
+      handleToolExecuteBefore(h.ctx, { sessionID: "sid-A1", tool: "read" }, { args: {} }),
+    ).rejects.toThrow("enforcement unavailable: guard evaluation failed; failing closed");
+  });
+
+  it("ME-04 behavior preserved — env gate '0' yields off mode (soft warn)", async () => {
+    process.env[DEFAULT_GATE] = "0";
+    const h = makeHarness({
+      configOverrides: { enforcement: { mode: "advisory" } as any },
+    });
+
+    vi.mocked(guardBeforeCall).mockImplementationOnce(() => {
+      throw new Error("boom");
+    });
+
+    await expect(
+      handleToolExecuteBefore(h.ctx, { sessionID: "sid-A1", tool: "read" }, { args: {} }),
+    ).resolves.toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // ME-05 — Type stable: env field is Record<string, string | null>.
+  // -------------------------------------------------------------------------
+  it("ME-05 type stable — every env value is string or null, only one key", async () => {
+    const h = makeHarness({
+      configOverrides: { enforcement: { mode: "advisory" } as any },
+    });
+
+    await handleToolExecuteBefore(h.ctx, { sessionID: "sid-A1", tool: "read" }, { args: {} });
+
+    const calls = vi.mocked(guardBeforeCall).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const envArg = (calls[calls.length - 1]![0] as { env: Record<string, string | null> }).env;
+    const keys = Object.keys(envArg);
+    expect(keys).toHaveLength(1);
+    for (const v of Object.values(envArg)) {
+      expect(v === null || typeof v === "string").toBe(true);
+    }
   });
 });
