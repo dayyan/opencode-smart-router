@@ -20,9 +20,6 @@ export default defineConfig([
       format: "esm",
     },
     external: sharedExternal,
-    resolve: {
-      extensions: [".res.mjs", ".mjs", ".js", ".ts", ".json"],
-    },
   },
   {
     input: "src/cli/main.ts",
@@ -31,8 +28,5 @@ export default defineConfig([
       format: "esm",
     },
     external: sharedExternal,
-    resolve: {
-      extensions: [".res.mjs", ".mjs", ".js", ".ts", ".json"],
-    },
   },
 ]);

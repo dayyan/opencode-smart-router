@@ -11,8 +11,7 @@
 // ---------------------------------------------------------------------------
 
 import { detectNarration } from "../../guard/narration";
-import type { tierConfig } from "../../router/Protocol.res.mjs";
-import { getActiveTiers } from "../../router/Protocol.res.mjs";
+import { getActiveTiers } from "../../router/protocol";
 import type { PluginContext } from "../context";
 import { asChatMessageInput, type HookPayload } from "../types";
 
@@ -53,7 +52,7 @@ export const handleChatMessage = async (
   // getFreshConfig() tries a forced refresh and falls back to the cached
   // value on read failure.
   const cfg = await ctx.getFreshConfig();
-  const tierNames = Object.keys(getActiveTiers(cfg as unknown as tierConfig));
+  const tierNames = Object.keys(getActiveTiers(cfg));
   const chatInput = asChatMessageInput(input);
   if (!chatInput) return; // fail-soft: malformed payload
   ctx.sessionStore.registerFromChatMessage(chatInput, output, cfg, tierNames);

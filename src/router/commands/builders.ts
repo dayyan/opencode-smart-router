@@ -18,15 +18,13 @@
 // ---------------------------------------------------------------------------
 
 import type { PluginContext } from "../../plugin/context";
-// Type imports from original TS files (type definitions preserved for backward compat)
-import type { reasoningCapability as ReasoningCapability, reasoningLevel as ReasoningLevel } from "../../reasoning/Reasoning.res.mjs";
-// Value imports from ReScript facade
-import { inferCapability, translateLevel } from "../../reasoning/Reasoning.res.mjs";
-import type { RouterConfig, TierConfig } from "../config";
+import type { ReasoningCapability, ReasoningLevel } from "../../reasoning/capability.js";
+import { inferCapability } from "../../reasoning/capability.js";
+import { translateLevel } from "../../reasoning/translate.js";
+import type { RouterConfig } from "../config";
 import { resolvePresetName } from "../config";
 import { resolveEnforcementMode } from "../enforcement";
-import type { tierConfig } from "../Protocol.res.mjs";
-import { getActiveTiers } from "../Protocol.res.mjs";
+import { getActiveTiers } from "../protocol";
 
 const REASONING_LEVELS: ReadonlySet<ReasoningLevel> = new Set([
   "minimal",
@@ -86,20 +84,18 @@ export const buildRouterOutput = async (
 // ---------------------------------------------------------------------------
 
 export const buildTiersOutput = (cfg: RouterConfig): string => {
-  const tiers = getActiveTiers(cfg as unknown as tierConfig);
+  const tiers = getActiveTiers(cfg);
   const lines: string[] = [`# Model Delegation Tiers`, `Active preset: **${cfg.activePreset}**\n`];
 
   for (const [name, tier] of Object.entries(tiers)) {
-    // Access full TierConfig from cfg.presets for fields not in tierDef (thinking/reasoning/steps)
-    const fullTier = cfg.presets[cfg.activePreset]?.[name];
-    const thinkingStr = fullTier?.thinking
-      ? ` | thinking: ${fullTier.thinking.budgetTokens} tokens`
-      : fullTier?.reasoning
-        ? ` | reasoning: effort=${fullTier.reasoning.effort}`
+    const thinkingStr = tier.thinking
+      ? ` | thinking: ${tier.thinking.budgetTokens} tokens`
+      : tier.reasoning
+        ? ` | reasoning: effort=${tier.reasoning.effort}`
         : "";
     lines.push(`## @${name} -> \`${tier.model}\`${thinkingStr}`);
     lines.push(tier.description);
-    lines.push(`Steps: ${fullTier?.steps ?? "default"}`);
+    lines.push(`Steps: ${tier.steps ?? "default"}`);
     lines.push(`Use when: ${tier.whenToUse.join(", ")}\n`);
   }
 
@@ -242,14 +238,12 @@ const describeCapability = (tierName: string, cap: ReasoningCapability): string 
       return `@${tierName}: binary variant (elevated: ${cap.elevated}${cap.baseline ? `, baseline: ${cap.baseline}` : ""}).`;
     case "discrete": {
       const channel = cap.field === "variant" ? "variant" : "reasoning_effort";
-      return `@${tierName}: discrete ${channel} ladder [${(cap.levels ?? []).join(" < ")}].`;
+      return `@${tierName}: discrete ${channel} ladder [${cap.levels.join(" < ")}].`;
     }
     case "budgeted":
-      return `@${tierName}: budgeted (thinking tokens per level: ${Object.entries(cap.recommended ?? {})
+      return `@${tierName}: budgeted (thinking tokens per level: ${Object.entries(cap.recommended)
         .map(([k, v]) => `${k}=${v}`)
         .join(", ")}).`;
-    default:
-      return `@${tierName}: unknown capability.`;
   }
 };
 
@@ -303,16 +297,14 @@ export const buildReasoningOutput = async (
   // Show help when no args — describe every active tier's capability and
   // the full subcommand surface (mode + level).
   if (tokens.length === 0) {
-    const tiers = getActiveTiers(cfg as unknown as tierConfig);
+    const tiers = getActiveTiers(cfg);
     const lines: string[] = [
       `# Reasoning Overrides`,
       `Policy mode: **${policyMode}** (surfaceLimits: ${surfaceLimits ? "on" : "off"})`,
       "",
     ];
     for (const [name, tier] of Object.entries(tiers)) {
-      // Get full TierConfig from cfg.presets for capability inference (tierDef doesn't have thinking/reasoning)
-      const fullTier = cfg.presets[cfg.activePreset]?.[name] as TierConfig | undefined;
-      const cap: ReasoningCapability = (fullTier as TierConfig)?.capability ?? (inferCapability(fullTier as TierConfig) as ReasoningCapability);
+      const cap = tier.capability ?? inferCapability(tier);
       lines.push(describeCapability(name, cap));
     }
     lines.push(
@@ -371,7 +363,7 @@ export const buildReasoningOutput = async (
   // Per-tier acknowledgement: which tiers can actually satisfy the level,
   // which collapse, and which can't (none capability → silent no-op unless
   // surfaceLimits is enabled).
-  const tiers = getActiveTiers(cfg as unknown as tierConfig);
+  const tiers = getActiveTiers(cfg);
   const lines: string[] = [
     `Reasoning override set to **${sub}** for this session.`,
     "",
@@ -379,9 +371,7 @@ export const buildReasoningOutput = async (
   ];
   let anyCollapse = false;
   for (const [name, tier] of Object.entries(tiers)) {
-    // Use full TierConfig from cfg.presets for capability inference
-    const fullTier = cfg.presets[cfg.activePreset]?.[name] as TierConfig | undefined;
-    const cap: ReasoningCapability = (fullTier as TierConfig)?.capability ?? (inferCapability(fullTier as TierConfig) as ReasoningCapability);
+    const cap = tier.capability ?? inferCapability(tier);
     if (cap.kind === "none") {
       if (surfaceLimits) lines.push(`- @${name}: unsupported (no reasoning control).`);
       continue;

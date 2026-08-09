@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "../../src/plugin/context";
 import { executeDelegate } from "../../src/plugin/delegate";
 import type { RouterConfig } from "../../src/router/config";
-import { resolveTierModelGuard } from "../../src/utils/TierModelGuard.res.mjs";
+import { resolveTierModelGuard } from "../../src/utils/tier-model-guard";
 
 // ---------------------------------------------------------------------------
 // Delegate-execution parity tests.
@@ -954,7 +954,7 @@ describe("executeDelegate — parentSessionID propagation", () => {
       ...ctxBase.ctx,
       seams: { exec: ctxBase.ctx.seams.exec, fs: ctxBase.ctx.seams.fs },
     };
-    const { buildGateDeps } = await import("../../src/verify/dispatch-io");
+    const { buildGateDeps } = await import("../../src/verify/dispatch");
     const createCalls: unknown[] = [];
     const wrappedCtx: PluginContext = {
       ...ctx,

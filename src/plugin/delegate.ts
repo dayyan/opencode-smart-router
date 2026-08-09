@@ -15,32 +15,27 @@
 import {
   advance,
   buildEscalatePolicy,
-  newLadderState,
-  nextAction,
-  recordAttempt,
-} from "../escalate/Ladder.res.mjs";
-import {
   dumpDelegateScorecard,
   logDelegation,
   logEscalation,
-} from "../escalate/ladder-io";
+  newLadderState,
+  nextAction,
+  recordAttempt,
+} from "../escalate/ladder";
 import { scrubText } from "../guard/scrub";
 import type { Preset } from "../router/config";
-import type { tierConfig } from "../router/Protocol.res.mjs";
-import { getActiveTiers } from "../router/Protocol.res.mjs";
+import { getActiveTiers } from "../router/protocol";
 import { classifyPromptError } from "../utils/error-classify";
 import { log, logEvent } from "../utils/observability";
-import { resolveTierModelGuard } from "../utils/TierModelGuard.res.mjs";
+import { resolveTierModelGuard } from "../utils/tier-model-guard";
 import { withTimeout } from "../utils/timeout";
 import { showRouterToast } from "../utils/toast";
 import {
   buildAcceptedSuffix,
-} from "../verify/Verify.res.mjs";
-import {
   buildDelegationDoD,
   buildForcingNote,
   buildGateDeps,
-} from "../verify/dispatch-io";
+} from "../verify/dispatch";
 import { accept } from "../verify/gate";
 import type { PluginContext } from "./context";
 import type { DelegateArgs, SessionCreateResult, SessionPromptResult } from "./types";
@@ -175,7 +170,7 @@ export const executeDelegate = async (
 
     const policy = buildEscalatePolicy(activeCfg);
     let state = newLadderState(initialTier, policy);
-    const tiersForCost: Preset = getActiveTiers(activeCfg as unknown as tierConfig) as unknown as Preset;
+    const tiersForCost: Preset = getActiveTiers(activeCfg);
 
     // Independent safety net: even a policy bug cannot loop unbounded.
     const safetyMax =
