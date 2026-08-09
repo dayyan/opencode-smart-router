@@ -1,5 +1,38 @@
 # Plan 022: Add Light and Focused Routing Tiers
 
+> ## ⚠️ REFRESHED 2026-08-08 (commit `c809a0e`) — PARTIALLY DONE / PARTIALLY OBSOLETE
+>
+> This plan was authored 2026-07-15 against commit `b1cfa25`, BEFORE the
+> ReScript migration phases 4-5. Reconcile, don't duplicate — read this banner
+> before using the body below.
+>
+> **What LANDED (DONE — do not redo):**
+> - Step 4 (bundled config): all six presets in `config/tiers/presets.json`
+>   now expose `fast / light / medium / focused / heavy`.
+> - `src/router/TierLadder.res:19` now exports `resolveLadder` (the resolver
+>   Step 1 wanted to create as `tier-ladder.ts`). It is fully tested in
+>   `src/router/TierLadder_test.res` (asserts
+>   `["fast","light","medium","focused","heavy"]`).
+> - The ReScript escalation path (`src/escalate/Ladder.res`) already consumes
+>   `TierLadder.resolveLadder`.
+>
+> **What is OBSOLETE:**
+> - Step 1 (create `src/router/tier-ladder.ts`) — superseded by the existing
+>   ReScript `TierLadder.resolveLadder`. Do NOT create a TS duplicate; wire
+>   TS consumers to the ReScript resolver instead.
+> - The file paths `src/router/protocol.ts` and `src/escalate/ladder.ts`
+>   referenced in the body were migrated to `Protocol.res` / `Ladder.res`.
+>
+> **What REMAINS (the residue — this is the actual work now):**
+> - `src/verify/checker.ts:61` still hard-codes
+>   `const ladder = opts?.ladder ?? ["fast", "medium", "heavy"];`.
+> - `src/router/sessions.ts:134` still hard-codes
+>   `if (tier !== "fast") return false;` in `classifyTrivial` (this site was
+>   NEVER covered by the original 022 — it is a newly identified gap).
+>
+> The narrowed execution steps are in **"## Residue execution plan"** at the
+> END of this file. The original body below is retained as provenance.
+
 > **Executor instructions**: Follow this plan step by step. Run every
 > verification command and confirm the expected result before moving to the
 > next step. If a provider model mapping is unavailable, stop and report it;
@@ -307,3 +340,78 @@ Stop and report instead of improvising if:
 - Review cost-ceiling documentation whenever a tier ratio changes.
 - The provider mapping is intentionally data-driven; model availability and
   pricing must be reviewed separately from router mechanics.
+
+---
+
+## Residue execution plan (2026-08-08 refresh, commit `c809a0e`)
+
+Only the two TS hard-code sites below remain. The ReScript resolver already
+exists; wire TS to it.
+
+### Residue-Step 1: Wire `checker.ts` to the existing `TierLadder.resolveLadder`
+
+`src/verify/checker.ts:61`:
+```ts
+const ladder = opts?.ladder ?? ["fast", "medium", "heavy"];
+```
+
+- `runChecker` receives `deps.ladder` (`CheckerDeps`). Make the caller
+  (`src/verify/dispatch.ts`, in `buildGateDeps` / `verifyTaskAfterHook`)
+  always pass `TierLadder.resolveLadder(cfg)` into `CheckerDeps.ladder`.
+- Keep `opts?.ladder` override precedence for explicit operator ladders.
+- Fix the stale comment at `checker.ts:37` (`// default ["fast","medium","heavy"]`).
+- Confirm `src/types/rescript-modules.d.ts` declares the `*TierLadder.res.mjs`
+  module with `resolveLadder(cfg): string[]` so the TS import type-checks; add
+  the declaration if missing.
+
+**Verify**: `pnpm test -- checker verify-dispatch`; `pnpm run typecheck`.
+
+### Residue-Step 2: Generalize `classifyTrivial` in `sessions.ts`
+
+`src/router/sessions.ts:134`:
+```ts
+if (tier !== "fast") return false;
+```
+
+This hard-codes `fast` as the only trivial-eligible tier — wrong for five-tier
+presets where `light` (costRatio 2) should also qualify. This site was never
+in the original plan.
+
+- Replace the name check with a derived eligibility rule. Preferred: a
+  costRatio ceiling (tiers whose `costRatio` is at or below a threshold —
+  defaulting to `light`'s ratio — are trivial-eligible), read from the active
+  preset. This keeps it data-driven and tier-name-agnostic.
+- Preserve the existing guard: a dispatch matching `medium`/`heavy`
+  disqualifier keywords is NEVER trivial.
+- Add focused tests: `light` can be classified trivial when fast-patterns
+  match; `medium`/`focused`/`heavy` never are; a custom three-tier preset
+  with only `fast`/`medium`/`heavy` still behaves exactly as before.
+
+**Verify**: `pnpm test -- sessions`; `pnpm run typecheck`.
+
+### Residue-Step 3: Run the full evidence path
+
+```bash
+pnpm run build
+pnpm run typecheck
+pnpm run lint
+pnpm test
+pnpm run test:res
+```
+
+### Residue done criteria
+
+- [ ] `rg -n '"fast", "medium", "heavy"' src/` returns zero production hits.
+- [ ] `rg -n 'tier !== "fast"' src/` returns zero production hits.
+- [ ] All five tiers grade / escalate / trivial-classify correctly.
+- [ ] A custom three-tier preset still works without `light`/`focused`.
+- [ ] `TierLadder.resolveLadder` is the single source of ladder order.
+
+### Residue STOP conditions
+
+- If `TierLadder.resolveLadder`'s `Config.t` (ReScript ABI) shape does not
+  match the TS `RouterConfig` at the call boundary, add a thin adapter; do
+  not `as`-cast blindly.
+- If changing trivial-eligibility from a name to a costRatio rule breaks an
+  existing golden/integration test, investigate the assertion before changing
+  it — do not relax a security-relevant check to make a test pass.
