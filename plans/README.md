@@ -55,6 +55,7 @@ See "### Audit cycle 4" below for the reconciliation notes.
 | 032  | Align Guard Resolver envGate Access Path With the Typed Config | P1 | S | LOW | 031 | DONE (SDD cycle, obs #4084–4090) |
 | 033  | Restore 1:1 TypeScript Parity in the ReScript Guard Engine | P1 | M | LOW–MED | — | DONE |
 | 034  | Add reasoning-level escalation on retry (bump before tier fallback) | P2 | M | MED | — | DONE (SDD cycle, obs #4121/#4123/#4124/#4134/#4135; verify-report PASS; branch `advisor/034-reasoning-bump-escalation`) |
+| 035  | Add unit tests for config-loader pure functions | P1 | S | LOW | — | DONE (24/24 tests pass; typecheck + lint green; branch `advisor/035-config-loader-tests` @ `c633d1d`) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale).
 
@@ -63,6 +64,51 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 > the reasoning level up the tier's own `capability.levels` ladder (index-based,
 > default cap 2) before falling back to the next tier. `none`-capability tiers
 > are unchanged. See `plans/034-reasoning-level-escalation-on-retry.md`.
+
+### Audit cycle 5 — new plan (2026-08-10, commit `5e1810f`)
+
+Code-health audit focused on testability gaps in the post-034 codebase. The
+initial audit flagged four candidate gaps; deep verification against the
+actual test suite **rejected three** as already-covered and confirmed one.
+
+- **035** — `src/router/config-loader.ts` has no dedicated unit test file.
+  Its three exported pure functions (`readConfigLayer`,
+  `deepMergeConfig`, `applyStateOverlay`) are exercised only indirectly via
+  integration tests (`config-store.test.ts`, `config-async.test.ts`). This
+  plan adds 24 focused unit tests covering every error kind, merge rule, and
+  overlay field. See `plans/035-config-loader-unit-tests.md`.
+
+**Rejected as already-covered (verified against current test suite):**
+
+- **Fail-soft session registration** (`delegate.ts:301-310`): ALREADY TESTED
+  at `test/unit/plugin-delegate.test.ts:698` — "continues to the gate even
+  when registerProducerSession throws". The intentional fail-soft contract is
+  locked.
+- **Cancellation propagation across parent/child sessions**: ALREADY TESTED
+  exhaustively at `test/unit/plugin-delegate.test.ts:1108-1396` — covers
+  abort-before-loop, abort-between-create-and-prompt, abort-during-prompt,
+  abort-during-ladder-eval, post-completion-abort, multiple-abort-idempotency,
+  and silent-abort-path invariants.
+- **Reasoning-escalation config-to-runtime wiring**: ALREADY TESTED at both
+  the pure-logic level (`test/unit/ladder.test.ts:564-994,1198-1316+` —
+  bump/escalate/cap-hit actions, `canBumpReasoning` T-1 through T-6,
+  property-based invariants) and the integration level
+  (`test/unit/plugin-delegate.test.ts:2527-3086+` — bump→bump→escalate
+  scenarios, T-1/3/4/5/6, retryable→no-bump T-2, none-capability T-5).
+  Config validation is covered at
+  `test/unit/config-validate-sections.test.ts:377-417`.
+
+**Rejected as not justified (same verdict as cycle 2):**
+
+- **`delegate.ts` decomposition into multiple classes/modules**: the file is
+  647 LOC and high-fan-out but cohesive — all logic is delegation
+  orchestration with no natural seam. Splitting would add indirection
+  without a demonstrated boundary. The cycle-2 deferral stands: revisit only
+  after the test coverage from 002 + this plan's config-loader tests provide
+  a stronger behavioral baseline.
+- **Command registry pattern in `dispatch.ts`**: style preference, not a
+  structural defect. The 6-command `if`-chain is explicit, readable, and
+  each branch is independently testable.
 
 > Note: Plan files `017-*.md` through `022-*.md` exist on disk but were
 > authored outside this index (SDD mid-cycle artifacts). They are NOT
