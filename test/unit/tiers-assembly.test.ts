@@ -37,10 +37,13 @@ const ASSEMBLER_PATH = join(REPO_ROOT, "scripts", "build-tiers-config.ts");
 // `reasoningPolicy` was added by Plan 010 PR 3 and sits at the end of
 // the merged tiers.json (after `defaultTier`) per the merge-plan step
 // in scripts/build-tiers-config.ts.
+// `enforcement` was added for reasoning escalation and sits after
+// `tierCaps` per the merge-plan step in scripts/build-tiers-config.ts.
 const EXPECTED_KEY_ORDER = [
   "activePreset",
   "activeMode",
   "tierCaps",
+  "enforcement",
   "tierPrompts",
   "presets",
   "taskPatterns",
@@ -61,7 +64,14 @@ const PARTS: readonly PartSpec[] = [
   {
     label: "base.json",
     path: join(TIERS_DIR, "base.json"),
-    expectedKeys: ["activePreset", "activeMode", "tierCaps", "defaultTier", "reasoningPolicy"],
+    expectedKeys: [
+      "activePreset",
+      "activeMode",
+      "tierCaps",
+      "enforcement",
+      "defaultTier",
+      "reasoningPolicy",
+    ],
   },
   {
     label: "presets.json",
@@ -244,6 +254,18 @@ describe("tiers assembly — runtime contract", () => {
     for (const key of EXPECTED_KEY_ORDER) {
       expect(parsed[key]).toBeDefined();
     }
+  });
+
+  it("enforcement.escalate.reasoningEscalation is present and correctly configured", () => {
+    const parsed = JSON.parse(readFileSync(ASSEMBLED_PATH, "utf-8")) as Record<string, unknown>;
+    const enforcement = parsed.enforcement as Record<string, unknown>;
+    expect(enforcement).toBeDefined();
+    const escalate = enforcement.escalate as Record<string, unknown>;
+    expect(escalate).toBeDefined();
+    const reasoningEscalation = escalate.reasoningEscalation as Record<string, unknown>;
+    expect(reasoningEscalation).toBeDefined();
+    expect(reasoningEscalation.enabled).toBe(true);
+    expect(reasoningEscalation.maxLevelBumpsPerTier).toBe(2);
   });
 });
 

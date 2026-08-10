@@ -391,15 +391,15 @@ describe("validateReasoningEscalation", () => {
     ).not.toThrow();
   });
   it("rejects enabled that is not a boolean", () => {
-    expect(() =>
-      validateReasoningEscalation({ reasoningEscalation: { enabled: "yes" } }),
-    ).toThrow(/reasoningEscalation\.enabled must be a boolean/);
-    expect(() =>
-      validateReasoningEscalation({ reasoningEscalation: { enabled: 1 } }),
-    ).toThrow(/reasoningEscalation\.enabled must be a boolean/);
-    expect(() =>
-      validateReasoningEscalation({ reasoningEscalation: { enabled: null } }),
-    ).toThrow(/reasoningEscalation\.enabled must be a boolean/);
+    expect(() => validateReasoningEscalation({ reasoningEscalation: { enabled: "yes" } })).toThrow(
+      /reasoningEscalation\.enabled must be a boolean/,
+    );
+    expect(() => validateReasoningEscalation({ reasoningEscalation: { enabled: 1 } })).toThrow(
+      /reasoningEscalation\.enabled must be a boolean/,
+    );
+    expect(() => validateReasoningEscalation({ reasoningEscalation: { enabled: null } })).toThrow(
+      /reasoningEscalation\.enabled must be a boolean/,
+    );
   });
   it("rejects maxLevelBumpsPerTier that is negative, fractional, or non-numeric", () => {
     expect(() =>

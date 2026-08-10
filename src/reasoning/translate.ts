@@ -36,10 +36,7 @@ const DISCRETE_RANK: Record<ReasoningLevel, number> = {
  * Duplicates the discrete rank formula from `translateLevel` so the index
  * is available independently of patch emission.
  */
-export const resolveLevelIndex = (
-  cap: ReasoningCapability,
-  level: ReasoningLevel,
-): number => {
+export const resolveLevelIndex = (cap: ReasoningCapability, level: ReasoningLevel): number => {
   if (cap.kind !== "discrete") return 0;
   const target = DISCRETE_RANK[level];
   const rawIdx = Math.round((target / 3) * (cap.levels.length - 1));
@@ -52,7 +49,10 @@ export const resolveLevelIndex = (
  * `variant` is undefined/absent (baseline) and 1 for elevated.
  * Returns `undefined` if the variant is not found in the ladder.
  */
-export const levelIndexForVariant = (cap: ReasoningCapability, variant?: string): number | undefined => {
+export const levelIndexForVariant = (
+  cap: ReasoningCapability,
+  variant?: string,
+): number | undefined => {
   if (cap.kind === "discrete" && cap.levels) {
     const idx = cap.levels.indexOf(variant ?? "");
     return idx >= 0 ? idx : undefined;
@@ -84,10 +84,7 @@ export const capabilityLadderLength = (cap: ReasoningCapability): number => {
  * Binary: idx >= 1 → elevated variant; idx === 0 → baseline or null.
  * Clamps `idx` to `levels.length - 1` for discrete.
  */
-export const translateAtIndex = (
-  cap: ReasoningCapability,
-  idx: number,
-): ResolvedReasoning => {
+export const translateAtIndex = (cap: ReasoningCapability, idx: number): ResolvedReasoning => {
   if (cap.kind === "discrete" && cap.levels) {
     const clampedIdx = Math.min(idx, cap.levels.length - 1);
     const picked = cap.levels[clampedIdx];

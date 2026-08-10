@@ -59,15 +59,17 @@ const PART_PATHS: Record<PartName, string> = {
 // which must match the original `tiers.json` key order.
 //
 //   1. base            → activePreset, activeMode, tierCaps
-//   2. prompts         → tierPrompts
-//   3. presets         → presets
-//   4. task-patterns   → taskPatterns, modes, fallback, rules
-//   5. base            → defaultTier, reasoningPolicy (reasoningPolicy is
+//   2. base            → enforcement (escalate/reasoningEscalation)
+//   3. prompts         → tierPrompts
+//   4. presets         → presets
+//   5. task-patterns   → taskPatterns, modes, fallback, rules
+//   6. base            → defaultTier, reasoningPolicy (reasoningPolicy is
 //                        appended after defaultTier so it sits at the end
 //                        of the merged `tiers.json`, matching its place in
 //                        `base.json`).
 const MERGE_PLAN: Array<{ part: PartName; keys?: string[] }> = [
   { part: "base", keys: ["activePreset", "activeMode", "tierCaps"] },
+  { part: "base", keys: ["enforcement"] },
   { part: "prompts" },
   { part: "presets" },
   { part: "task-patterns" },

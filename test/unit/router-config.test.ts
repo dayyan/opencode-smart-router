@@ -501,10 +501,10 @@ describe("Layered config — state overlay", () => {
       JSON.stringify({ enforcementMode: "bogus" }),
       "utf-8",
     );
-    // The bundled config has no enforcement block, so when the persisted
-    // mode is invalid, cfg.enforcement stays undefined.
     const cfg = await readMergedConfig({ cwd: process.cwd() });
-    expect(cfg.enforcement).toBeUndefined();
+    expect(cfg.enforcement).toBeDefined();
+    expect(cfg.enforcement?.escalate?.reasoningEscalation?.enabled).toBe(true);
+    expect(cfg.enforcement?.escalate?.reasoningEscalation?.maxLevelBumpsPerTier).toBe(2);
   });
 
   it("invalid enforcementMode does not wipe out a valid manual enforcement.mode", async () => {

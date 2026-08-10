@@ -8,6 +8,14 @@
     "focused": 4,
     "heavy": 3
   },
+  "enforcement": {
+    "escalate": {
+      "reasoningEscalation": {
+        "enabled": true,
+        "maxLevelBumpsPerTier": 2
+      }
+    }
+  },
   "defaultTier": "medium",
   "reasoningPolicy": {
     "mode": "manual",

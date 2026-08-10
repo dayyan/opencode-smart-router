@@ -3,6 +3,7 @@ import {
   advance,
   buildEscalatePolicy,
   buildLadderForcingMessage,
+  canBumpReasoning,
   type EscalatePolicy,
   formatLadderScorecard,
   type LadderState,
@@ -15,7 +16,6 @@ import {
   tierRank,
 } from "../../src/escalate/ladder";
 import type { RouterConfig } from "../../src/router/config";
-import { canBumpReasoning } from "../../src/escalate/ladder";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -991,11 +991,7 @@ describe("property-based: bump invariants with feature ON (WU-4)", () => {
         const rungsRemain = state.levelIndex + 1 < state.reasoningLadderLen;
         const bumpsAvailable =
           bumpsLeft > 0 && rungsRemain && verdict.cause === "verification_fail";
-        if (
-          bumpsAvailable &&
-          state.reasoningLadderLen > 0 &&
-          p.reasoningEscalation?.enabled
-        ) {
+        if (bumpsAvailable && state.reasoningLadderLen > 0 && p.reasoningEscalation?.enabled) {
           expect(action.action).not.toBe("retry");
         }
 
@@ -1285,7 +1281,11 @@ describe("canBumpReasoning", () => {
 describe("nextAction — bump branch (WU-4)", () => {
   const ladder = ["fast", "medium", "heavy"];
   const bumpPolicy = (overrides: Partial<EscalatePolicy> = {}) =>
-    makePolicy({ ladder, reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 }, ...overrides });
+    makePolicy({
+      ladder,
+      reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 },
+      ...overrides,
+    });
   const ladderState = (overrides: Partial<LadderState> = {}) =>
     makeState({ reasoningLadderLen: 3, levelIndex: 0, bumpsThisTier: 0, ...overrides });
 
@@ -1331,7 +1331,11 @@ describe("nextAction — bump branch (WU-4)", () => {
 
   // T-5: feature off — existing path (retry)
   it("T-5: returns retry when feature is OFF (enabled=false)", () => {
-    const p = makePolicy({ ladder, maxAttemptsPerTier: 2, reasoningEscalation: { enabled: false } });
+    const p = makePolicy({
+      ladder,
+      maxAttemptsPerTier: 2,
+      reasoningEscalation: { enabled: false },
+    });
     const s = ladderState({ attemptsThisTier: 0 });
     const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
     const a = nextAction(s, verdict, p);

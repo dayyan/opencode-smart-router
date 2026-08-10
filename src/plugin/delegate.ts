@@ -214,412 +214,412 @@ export const executeDelegate = async (
     const tierBaselines = new Map<string, Record<string, unknown>>();
 
     try {
-    while (true) {
-      // Abort check (1): top of loop. If we were cancelled while idle
-      // (between attempts, before the loop, or after the last cleanup),
-      // exit silently with no producer session to clean up.
-      if (signal?.aborted) {
-        logEvent.routing.aborted({
-          phase: "loop-top",
-          attempts: state.totalAttempts,
-        });
-        return "";
-      }
-
-      if (safety++ > safetyMax) {
-        logEvent.routing.unmet({
-          reason: "safety-net",
-          attempts: state.totalAttempts,
-        });
-        return (
-          `[router status: unmet] delegation stopped by the safety net after ` +
-          `${state.totalAttempts} attempt(s).\n\n${scrubText(producerText)}`
-        );
-      }
-      const tier = state.currentTier;
-      const taskText = forcing ? `${scrubText(forcing)}\n\n${args.task}` : args.task;
-      // PR5: structured routing.delegated event — operators can now see
-      // the tier + attempt index for every delegation step without
-      // scraping the trajectory file.
-      attemptCounter += 1;
-      logDelegation("", tier, attemptCounter, forcing != null);
-
-      let created: SessionCreateResult;
-      try {
-        // SDD restore-session-parenting: thread parentSessionID into
-        // session.create so the producer is a child session of the orchestrator.
-        // OpenCode filters session lists with WHERE parent_session_id IS NULL,
-        // so passing parentID hides the producer from ctrl+x l (the original
-        // behavior the user expects). The session itself still completes
-        // normally — we just classify it as nested, not standalone.
-        created = await withTimeout(
-          ctx.plugin.client.session.create({
-            ...(parentSessionID ? { body: { parentID: parentSessionID } } : {}),
-            ...(signal ? { signal } : {}),
-          }),
-          30_000,
-          "session.create",
-          signal,
-        );
-      } catch (err) {
-        // AbortError during session.create: bail silently. We never
-        // produced a producer sid, so no per-attempt cleanup is needed
-        // — the outer while-loop will exit on the next top-of-loop check.
-        if (
-          (err instanceof DOMException && err.name === "AbortError") ||
-          (err !== null && typeof err === "object" && "name" in err && err.name === "AbortError")
-        ) {
+      while (true) {
+        // Abort check (1): top of loop. If we were cancelled while idle
+        // (between attempts, before the loop, or after the last cleanup),
+        // exit silently with no producer session to clean up.
+        if (signal?.aborted) {
+          logEvent.routing.aborted({
+            phase: "loop-top",
+            attempts: state.totalAttempts,
+          });
           return "";
         }
-        throw err;
-      }
 
-      // Abort check (2): after create. We own a producer session at this
-      // point — let the helper clean it up.
-      if (signal?.aborted) {
-        const abortedSid = extractSessionId(created);
-        if (abortedSid) {
-          await cleanupProducerSession(ctx, abortedSid);
-        }
-        return "";
-      }
-
-      const producerSid = extractSessionId(created);
-      if (!producerSid) {
-        const maybeSid =
-          created?.data?.id && typeof created.data.id === "string" ? created.data.id : "";
-        if (maybeSid) {
-          await cleanupProducerSession(ctx, maybeSid);
-        }
-        log.warn({
-          event: "delegate.create_no_sid",
-          error: "session.create returned no usable session id",
-        });
-        return "[router] delegate failed: could not create a producer session.";
-      }
-      // Compose with Layer 1: guard the plugin-created producer session.
-      try {
-        ctx.sessionStore.registerProducerSession(producerSid, tier, activeCfg);
-      } catch (err) {
-        log.warn({
-          event: "delegate.register_failed",
-          sid: producerSid,
-          tier,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-
-      // SDD fix-session-ghost-tui-jump: track success to conditionally abort.
-      let attemptSucceeded = false;
-      try {
-        // SDD change: delegate-nonretryable-errors (fail-fast-hardening-v2).
-        // Resolve the tier's model up front through the shared guard. A
-        // `{ ok: false }` result means the tier is missing, the
-        // `provider/model` string is malformed, or the tier's `model` field
-        // is absent — all are non-retryable configuration failures. Skip
-        // session.prompt entirely and fail fast with a `[router status:
-        // unmet]` message rather than feeding an empty artefact to the
-        // gate and burning retry/escalation attempts on a configuration
-        // that will never succeed. The per-attempt `finally` still runs,
-        // so the producer session is untracked. The guard returns the
-        // canonical reason string so the unmet payload and the visible
-        // message stay in sync across delegate + dispatch wirings.
-        const guard = resolveTierModelGuard(activeCfg, tier);
-        if (!guard.ok) {
-          // SDD: emit `routing.nonretryable` as the cause event alongside
-          // the terminal `routing.unmet` outcome so operators can tell
-          // policy-stop (this) from ladder-exhaustion (`routing.unmet`
-          // fired by `give_up` after all retries). The reason flows
-          // through the guard so both events name the same canonical
-          // invalid-config string.
-          logEvent.routing.nonretryable({
-            reason: guard.reason,
-            tier,
-            attempt: attemptCounter,
-          });
+        if (safety++ > safetyMax) {
           logEvent.routing.unmet({
-            reason: guard.reason,
-            attempts: attemptCounter,
-          });
-          // SDD: tui-toast-verification — surface the non-retryable policy
-          // stop as a TUI toast so the user sees a structured failure
-          // signal in addition to the structured log event. Best-effort:
-          // showRouterToast swallows any toast rejection internally.
-          showRouterToast(ctx.plugin.client, {
-            message: `Delegation failed: ${guard.reason}`,
-            variant: "error",
+            reason: "safety-net",
+            attempts: state.totalAttempts,
           });
           return (
-            `[router status: unmet] delegation stopped: ` +
-            `${guard.reason} ` +
-            `(after ${attemptCounter} attempt(s) on tier ${tier}).`
+            `[router status: unmet] delegation stopped by the safety net after ` +
+            `${state.totalAttempts} attempt(s).\n\n${scrubText(producerText)}`
           );
         }
-        const model = guard.model;
-        producerText = "";
+        const tier = state.currentTier;
+        const taskText = forcing ? `${scrubText(forcing)}\n\n${args.task}` : args.task;
+        // PR5: structured routing.delegated event — operators can now see
+        // the tier + attempt index for every delegation step without
+        // scraping the trajectory file.
+        attemptCounter += 1;
+        logDelegation("", tier, attemptCounter, forcing != null);
 
-        // Cause threading: tracks whether the current prompt attempt produced
-        // a retryable error (vs a clean prompt whose result was gate-rejected).
-        let promptCause: LadderVerdict["cause"];
-
-        // Per-attempt reasoning patch — snapshot baseline once per tier, then
-        // apply the reasoning-level patch for the current ladder rung.
-        const agentDef =
-          state.reasoningLadderLen > 0 ? ctx.opencodeConfig?.agent?.[tier] : undefined;
-        if (agentDef && state.reasoningLadderLen > 0) {
-          // Snapshot baseline before mutating — used by outer finally sweep.
-          if (!tierBaselines.has(tier)) {
-            tierBaselines.set(tier, { ...agentDef });
-          }
-          // Apply reasoning patch for the current level.
-          const tierCfg = activeCfg.presets?.[activeCfg.activePreset]?.[tier];
-          // Prefer explicit capability; fall back to inference from tier fields.
-          // The non-null `tierCfg` branch is always taken when agentDef is set
-          // because agentDef is sourced from opencodeConfig.agent[tier] which
-          // only exists when tierCfg was used to build it. The else branch is
-          // purely for TypeScript narrowing — tierCfg would be defined at this
-          // point but the type-system needs the explicit guard.
-          const cap: ReasoningCapability = (() => {
-            if (tierCfg) {
-              return tierCfg.capability ?? inferCapability(tierCfg);
-            }
-            const unsafe = activeCfg.presets?.[activeCfg.activePreset]?.[tier];
-            return unsafe ? inferCapability(unsafe) : { kind: "none" };
-          })();
-          const patch = translateAtIndex(cap, state.levelIndex);
-          if (patch) {
-            applyReasoningPatch(agentDef, patch);
-          }
-        }
-
-        // Provider-failover vs quality-escalation precedence (Phase 3.3):
-        // Provider-failover is advisory only — a text chain injected into the orchestrator
-        // system prompt (buildFallbackInstructions). It is orthogonal to this runtime ladder.
-        // A transport/API error here is caught, yields an empty artefact, and is treated as
-        // exactly ONE failed attempt by the quality-escalation ladder (no provider swap, no
-        // double-counted attempt). API error => (advisory) provider failover; verification
-        // FAIL => (runtime) quality escalation.
+        let created: SessionCreateResult;
         try {
-          const res: SessionPromptResult = await withTimeout(
-            ctx.plugin.client.session.prompt({
-              path: { id: producerSid },
+          // SDD restore-session-parenting: thread parentSessionID into
+          // session.create so the producer is a child session of the orchestrator.
+          // OpenCode filters session lists with WHERE parent_session_id IS NULL,
+          // so passing parentID hides the producer from ctrl+x l (the original
+          // behavior the user expects). The session itself still completes
+          // normally — we just classify it as nested, not standalone.
+          created = await withTimeout(
+            ctx.plugin.client.session.create({
+              ...(parentSessionID ? { body: { parentID: parentSessionID } } : {}),
               ...(signal ? { signal } : {}),
-              body: {
-                ...(model ? { model } : {}),
-                ...(tier ? { agent: tier } : {}),
-                parts: [{ type: "text", text: taskText }],
-              },
             }),
-            600_000,
-            "session.prompt (producer)",
+            30_000,
+            "session.create",
             signal,
           );
-          producerText = extractPromptText(res);
         } catch (err) {
-          // SDD change: delegate-nonretryable-errors. Classify the prompt
-          // error and dispatch on the bucket:
-          //   - abort         → silent `""` (preserves the existing
-          //                     AbortError short-circuit; the per-attempt
-          //                     `finally` cleans up the producer session).
-          //   - non_retryable → fail-closed `[router status: unmet]` with
-          //                     the classified reason. These errors (model
-          //                     not found, billing, auth/permission, invalid
-          //                     config) will never succeed on retry, so
-          //                     burning the ladder on them only inflates
-          //                     cost and pollutes verification telemetry.
-          //   - retryable     → empty artefact → gate → ladder (unchanged).
-          // The classifier's abort path is the canonical AbortError check,
-          // matching the previous `instanceof DOMException && name ===
-          // "AbortError"` test byte-for-byte.
-          const classified = classifyPromptError(err);
-          if (classified.kind === "abort") {
+          // AbortError during session.create: bail silently. We never
+          // produced a producer sid, so no per-attempt cleanup is needed
+          // — the outer while-loop will exit on the next top-of-loop check.
+          if (
+            (err instanceof DOMException && err.name === "AbortError") ||
+            (err !== null && typeof err === "object" && "name" in err && err.name === "AbortError")
+          ) {
             return "";
           }
-          if (classified.kind === "non_retryable") {
+          throw err;
+        }
+
+        // Abort check (2): after create. We own a producer session at this
+        // point — let the helper clean it up.
+        if (signal?.aborted) {
+          const abortedSid = extractSessionId(created);
+          if (abortedSid) {
+            await cleanupProducerSession(ctx, abortedSid);
+          }
+          return "";
+        }
+
+        const producerSid = extractSessionId(created);
+        if (!producerSid) {
+          const maybeSid =
+            created?.data?.id && typeof created.data.id === "string" ? created.data.id : "";
+          if (maybeSid) {
+            await cleanupProducerSession(ctx, maybeSid);
+          }
+          log.warn({
+            event: "delegate.create_no_sid",
+            error: "session.create returned no usable session id",
+          });
+          return "[router] delegate failed: could not create a producer session.";
+        }
+        // Compose with Layer 1: guard the plugin-created producer session.
+        try {
+          ctx.sessionStore.registerProducerSession(producerSid, tier, activeCfg);
+        } catch (err) {
+          log.warn({
+            event: "delegate.register_failed",
+            sid: producerSid,
+            tier,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+
+        // SDD fix-session-ghost-tui-jump: track success to conditionally abort.
+        let attemptSucceeded = false;
+        try {
+          // SDD change: delegate-nonretryable-errors (fail-fast-hardening-v2).
+          // Resolve the tier's model up front through the shared guard. A
+          // `{ ok: false }` result means the tier is missing, the
+          // `provider/model` string is malformed, or the tier's `model` field
+          // is absent — all are non-retryable configuration failures. Skip
+          // session.prompt entirely and fail fast with a `[router status:
+          // unmet]` message rather than feeding an empty artefact to the
+          // gate and burning retry/escalation attempts on a configuration
+          // that will never succeed. The per-attempt `finally` still runs,
+          // so the producer session is untracked. The guard returns the
+          // canonical reason string so the unmet payload and the visible
+          // message stay in sync across delegate + dispatch wirings.
+          const guard = resolveTierModelGuard(activeCfg, tier);
+          if (!guard.ok) {
             // SDD: emit `routing.nonretryable` as the cause event alongside
             // the terminal `routing.unmet` outcome so operators can tell
             // policy-stop (this) from ladder-exhaustion (`routing.unmet`
-            // fired by `give_up` after all retries).
+            // fired by `give_up` after all retries). The reason flows
+            // through the guard so both events name the same canonical
+            // invalid-config string.
             logEvent.routing.nonretryable({
-              reason: classified.reason,
+              reason: guard.reason,
               tier,
               attempt: attemptCounter,
             });
             logEvent.routing.unmet({
-              reason: classified.reason,
+              reason: guard.reason,
               attempts: attemptCounter,
             });
-            // SDD: tui-toast-verification — surface the non-retryable
-            // prompt-classification failure as a TUI toast. Best-effort;
-            // never throws on a missing TUI surface or rejected promise.
+            // SDD: tui-toast-verification — surface the non-retryable policy
+            // stop as a TUI toast so the user sees a structured failure
+            // signal in addition to the structured log event. Best-effort:
+            // showRouterToast swallows any toast rejection internally.
             showRouterToast(ctx.plugin.client, {
-              message: `Delegation failed: ${classified.reason}`,
+              message: `Delegation failed: ${guard.reason}`,
               variant: "error",
             });
             return (
               `[router status: unmet] delegation stopped: ` +
-              `${classified.reason} ` +
+              `${guard.reason} ` +
               `(after ${attemptCounter} attempt(s) on tier ${tier}).`
             );
           }
-          // Retryable (e.g. HTTP 429 rate limit, transient transport).
-          // Emit `routing.retryable` at debug level so operators can
-          // opt-in diagnose the retry/escalate flow. Reuse the existing
-          // `classified` variable — DO NOT call `classifyPromptError`
-          // twice. After emission, the existing ladder flow continues:
-          // empty artefact → gate → ladder.
-          logEvent.routing.retryable({
-            reason: classified.reason,
-            tier,
-            attempt: attemptCounter,
-          });
-          // Provider-failover design (see header comment): a transport/API
-          // error yields an empty artefact and counts as exactly ONE failed
-          // attempt. `err` is bound so the failure is observable at debug
-          // time and in code review — not silently discarded.
-          void err;
+          const model = guard.model;
           producerText = "";
-          // Thread the cause so nextAction can distinguish retryable_error
-          // from a clean prompt that the gate rejected.
-          promptCause = "retryable_error";
-        }
 
-        const artefact = {
-          changedFiles: ctx.changedFileStore.get(producerSid),
-          finalReturnText: producerText,
-          declaredOutputs: dod.deliverable ? [dod.deliverable] : [],
-          producerSessionID: producerSid,
-          producerTier: tier,
-        };
+          // Cause threading: tracks whether the current prompt attempt produced
+          // a retryable error (vs a clean prompt whose result was gate-rejected).
+          let promptCause: LadderVerdict["cause"];
 
-        let gateRes: Awaited<ReturnType<typeof accept>>;
-        try {
-          gateRes = await accept(
-            { dod, trivial: false, mode: "modeA" },
-            artefact,
-            await buildGateDeps(ctx, parentSessionID),
-          );
-        } catch (err) {
-          const reason = err instanceof Error ? err.message : String(err);
-          gateRes = {
-            accepted: false,
-            verdict: {
-              pass: false,
-              method: "none" as const,
-              reasons: [`verification failed (fail-closed): ${reason}`],
-            },
-            dodSource: dod.source,
+          // Per-attempt reasoning patch — snapshot baseline once per tier, then
+          // apply the reasoning-level patch for the current ladder rung.
+          const agentDef =
+            state.reasoningLadderLen > 0 ? ctx.opencodeConfig?.agent?.[tier] : undefined;
+          if (agentDef && state.reasoningLadderLen > 0) {
+            // Snapshot baseline before mutating — used by outer finally sweep.
+            if (!tierBaselines.has(tier)) {
+              tierBaselines.set(tier, { ...agentDef });
+            }
+            // Apply reasoning patch for the current level.
+            const tierCfg = activeCfg.presets?.[activeCfg.activePreset]?.[tier];
+            // Prefer explicit capability; fall back to inference from tier fields.
+            // The non-null `tierCfg` branch is always taken when agentDef is set
+            // because agentDef is sourced from opencodeConfig.agent[tier] which
+            // only exists when tierCfg was used to build it. The else branch is
+            // purely for TypeScript narrowing — tierCfg would be defined at this
+            // point but the type-system needs the explicit guard.
+            const cap: ReasoningCapability = (() => {
+              if (tierCfg) {
+                return tierCfg.capability ?? inferCapability(tierCfg);
+              }
+              const unsafe = activeCfg.presets?.[activeCfg.activePreset]?.[tier];
+              return unsafe ? inferCapability(unsafe) : { kind: "none" };
+            })();
+            const patch = translateAtIndex(cap, state.levelIndex);
+            if (patch) {
+              applyReasoningPatch(agentDef, patch);
+            }
+          }
+
+          // Provider-failover vs quality-escalation precedence (Phase 3.3):
+          // Provider-failover is advisory only — a text chain injected into the orchestrator
+          // system prompt (buildFallbackInstructions). It is orthogonal to this runtime ladder.
+          // A transport/API error here is caught, yields an empty artefact, and is treated as
+          // exactly ONE failed attempt by the quality-escalation ladder (no provider swap, no
+          // double-counted attempt). API error => (advisory) provider failover; verification
+          // FAIL => (runtime) quality escalation.
+          try {
+            const res: SessionPromptResult = await withTimeout(
+              ctx.plugin.client.session.prompt({
+                path: { id: producerSid },
+                ...(signal ? { signal } : {}),
+                body: {
+                  ...(model ? { model } : {}),
+                  ...(tier ? { agent: tier } : {}),
+                  parts: [{ type: "text", text: taskText }],
+                },
+              }),
+              600_000,
+              "session.prompt (producer)",
+              signal,
+            );
+            producerText = extractPromptText(res);
+          } catch (err) {
+            // SDD change: delegate-nonretryable-errors. Classify the prompt
+            // error and dispatch on the bucket:
+            //   - abort         → silent `""` (preserves the existing
+            //                     AbortError short-circuit; the per-attempt
+            //                     `finally` cleans up the producer session).
+            //   - non_retryable → fail-closed `[router status: unmet]` with
+            //                     the classified reason. These errors (model
+            //                     not found, billing, auth/permission, invalid
+            //                     config) will never succeed on retry, so
+            //                     burning the ladder on them only inflates
+            //                     cost and pollutes verification telemetry.
+            //   - retryable     → empty artefact → gate → ladder (unchanged).
+            // The classifier's abort path is the canonical AbortError check,
+            // matching the previous `instanceof DOMException && name ===
+            // "AbortError"` test byte-for-byte.
+            const classified = classifyPromptError(err);
+            if (classified.kind === "abort") {
+              return "";
+            }
+            if (classified.kind === "non_retryable") {
+              // SDD: emit `routing.nonretryable` as the cause event alongside
+              // the terminal `routing.unmet` outcome so operators can tell
+              // policy-stop (this) from ladder-exhaustion (`routing.unmet`
+              // fired by `give_up` after all retries).
+              logEvent.routing.nonretryable({
+                reason: classified.reason,
+                tier,
+                attempt: attemptCounter,
+              });
+              logEvent.routing.unmet({
+                reason: classified.reason,
+                attempts: attemptCounter,
+              });
+              // SDD: tui-toast-verification — surface the non-retryable
+              // prompt-classification failure as a TUI toast. Best-effort;
+              // never throws on a missing TUI surface or rejected promise.
+              showRouterToast(ctx.plugin.client, {
+                message: `Delegation failed: ${classified.reason}`,
+                variant: "error",
+              });
+              return (
+                `[router status: unmet] delegation stopped: ` +
+                `${classified.reason} ` +
+                `(after ${attemptCounter} attempt(s) on tier ${tier}).`
+              );
+            }
+            // Retryable (e.g. HTTP 429 rate limit, transient transport).
+            // Emit `routing.retryable` at debug level so operators can
+            // opt-in diagnose the retry/escalate flow. Reuse the existing
+            // `classified` variable — DO NOT call `classifyPromptError`
+            // twice. After emission, the existing ladder flow continues:
+            // empty artefact → gate → ladder.
+            logEvent.routing.retryable({
+              reason: classified.reason,
+              tier,
+              attempt: attemptCounter,
+            });
+            // Provider-failover design (see header comment): a transport/API
+            // error yields an empty artefact and counts as exactly ONE failed
+            // attempt. `err` is bound so the failure is observable at debug
+            // time and in code review — not silently discarded.
+            void err;
+            producerText = "";
+            // Thread the cause so nextAction can distinguish retryable_error
+            // from a clean prompt that the gate rejected.
+            promptCause = "retryable_error";
+          }
+
+          const artefact = {
+            changedFiles: ctx.changedFileStore.get(producerSid),
+            finalReturnText: producerText,
+            declaredOutputs: dod.deliverable ? [dod.deliverable] : [],
+            producerSessionID: producerSid,
+            producerTier: tier,
           };
-        }
-        // PR5: structured verification outcome observability. Mirrors the
-        // dispatch.ts wiring so the two wirings emit the same event shape.
-        const eventPayload = {
-          sid: producerSid,
-          producerTier: tier,
-          method: gateRes.verdict.method,
-          dodSource: gateRes.dodSource,
-          skipped: gateRes.verdict.skipped === true,
-          reasonCount: gateRes.verdict.reasons.length,
-        };
-        if (gateRes.accepted) {
-          logEvent.verification.pass(eventPayload);
-        } else if (gateRes.verdict.skipped) {
-          logEvent.verification.skipped({ ...eventPayload, reasons: gateRes.verdict.reasons });
-        } else {
-          logEvent.verification.fail({ ...eventPayload, reasons: gateRes.verdict.reasons });
-        }
 
-        const costRatio =
-          typeof tiersForCost?.[tier]?.costRatio === "number" ? tiersForCost[tier].costRatio : 1;
-        state = recordAttempt(state, costRatio);
+          let gateRes: Awaited<ReturnType<typeof accept>>;
+          try {
+            gateRes = await accept(
+              { dod, trivial: false, mode: "modeA" },
+              artefact,
+              await buildGateDeps(ctx, parentSessionID),
+            );
+          } catch (err) {
+            const reason = err instanceof Error ? err.message : String(err);
+            gateRes = {
+              accepted: false,
+              verdict: {
+                pass: false,
+                method: "none" as const,
+                reasons: [`verification failed (fail-closed): ${reason}`],
+              },
+              dodSource: dod.source,
+            };
+          }
+          // PR5: structured verification outcome observability. Mirrors the
+          // dispatch.ts wiring so the two wirings emit the same event shape.
+          const eventPayload = {
+            sid: producerSid,
+            producerTier: tier,
+            method: gateRes.verdict.method,
+            dodSource: gateRes.dodSource,
+            skipped: gateRes.verdict.skipped === true,
+            reasonCount: gateRes.verdict.reasons.length,
+          };
+          if (gateRes.accepted) {
+            logEvent.verification.pass(eventPayload);
+          } else if (gateRes.verdict.skipped) {
+            logEvent.verification.skipped({ ...eventPayload, reasons: gateRes.verdict.reasons });
+          } else {
+            logEvent.verification.fail({ ...eventPayload, reasons: gateRes.verdict.reasons });
+          }
 
-        const action = nextAction(
-          state,
-          {
-            pass: gateRes.accepted,
-            reasons: gateRes.verdict.reasons,
-            cause: gateRes.accepted ? undefined : (promptCause ?? "verification_fail"),
-          },
-          policy,
-          signal,
-        );
+          const costRatio =
+            typeof tiersForCost?.[tier]?.costRatio === "number" ? tiersForCost[tier].costRatio : 1;
+          state = recordAttempt(state, costRatio);
 
-        if (action.action === "accept") {
-          // SDD fix-session-ghost-tui-jump: mark success so finally skips abort.
-          attemptSucceeded = true;
-          // Accept still wins on the very last attempt even if the user
-          // cancelled mid-prompt — the producer's verified text is real.
-          dumpDelegateScorecard(producerSid, state, true, gateRes.verdict.method);
-          return producerText + buildAcceptedSuffix(gateRes.verdict.method);
-        }
-        if (action.action === "give_up") {
-          // Abort guard (4): ladder returned give_up because signal fired.
-          // Return silently — no unmet message, no scorecard dump, no
-          // forcing note surfaced to the caller.
-          if (action.reason === "aborted") {
-            logEvent.routing.aborted({
-              phase: "ladder-give-up",
+          const action = nextAction(
+            state,
+            {
+              pass: gateRes.accepted,
+              reasons: gateRes.verdict.reasons,
+              cause: gateRes.accepted ? undefined : (promptCause ?? "verification_fail"),
+            },
+            policy,
+            signal,
+          );
+
+          if (action.action === "accept") {
+            // SDD fix-session-ghost-tui-jump: mark success so finally skips abort.
+            attemptSucceeded = true;
+            // Accept still wins on the very last attempt even if the user
+            // cancelled mid-prompt — the producer's verified text is real.
+            dumpDelegateScorecard(producerSid, state, true, gateRes.verdict.method);
+            return producerText + buildAcceptedSuffix(gateRes.verdict.method);
+          }
+          if (action.action === "give_up") {
+            // Abort guard (4): ladder returned give_up because signal fired.
+            // Return silently — no unmet message, no scorecard dump, no
+            // forcing note surfaced to the caller.
+            if (action.reason === "aborted") {
+              logEvent.routing.aborted({
+                phase: "ladder-give-up",
+                attempts: state.totalAttempts,
+              });
+              return "";
+            }
+            dumpDelegateScorecard(producerSid, state, false, gateRes.verdict.method);
+            const note = scrubText(buildForcingNote(gateRes.verdict.reasons));
+            // SDD: tui-toast-verification — emit exactly one toast on the
+            // non-aborted `give_up` terminal path so the user sees a
+            // structured summary. Aborts are intentionally silent; retries
+            // are silent. Only the final ladder-exhaustion toast fires.
+            // Best-effort: never throws on a missing TUI surface.
+            showRouterToast(ctx.plugin.client, {
+              message: `Delegation unmet after ${state.totalAttempts} attempt(s) across ${state.escalations} escalation(s)`,
+              variant: "warning",
+            });
+            return (
+              `[router status: unmet] The delegated result was not accepted after ` +
+              `${state.totalAttempts} attempt(s) across ${state.escalations} escalation(s) ` +
+              `(final tier ${state.currentTier}; ${action.reason ?? "verification failed"}).\n\n` +
+              `${scrubText(producerText)}\n\n${note}`
+            );
+          }
+          // retry or escalate
+          forcing = action.forcingMessage ?? null;
+          const prevTier = state.currentTier;
+          state = advance(state, action);
+          // Re-seed reasoning ladder fields on the new tier after escalation.
+          if (action.action === "escalate" && action.tier) {
+            state = enterTier(state, action.tier);
+          }
+          // PR5: structured routing.escalated event — fires on the
+          // from→to transition only (retry stays in the same tier, so no
+          // event). `attempt` is the escalation index from the ladder.
+          if (action.action === "escalate" && action.tier && action.tier !== prevTier) {
+            logEscalation(
+              producerSid,
+              prevTier,
+              action.tier,
+              "verification-fail",
+              state.totalAttempts,
+            );
+          }
+          // WU-6: bump action — log the reasoning-level escalation within the tier.
+          if (action.action === "bump") {
+            logEvent.routing.escalated({
+              sid: producerSid,
+              from: prevTier,
+              to: prevTier,
+              reason: "reasoning-bump",
               attempts: state.totalAttempts,
             });
-            return "";
           }
-          dumpDelegateScorecard(producerSid, state, false, gateRes.verdict.method);
-          const note = scrubText(buildForcingNote(gateRes.verdict.reasons));
-          // SDD: tui-toast-verification — emit exactly one toast on the
-          // non-aborted `give_up` terminal path so the user sees a
-          // structured summary. Aborts are intentionally silent; retries
-          // are silent. Only the final ladder-exhaustion toast fires.
-          // Best-effort: never throws on a missing TUI surface.
-          showRouterToast(ctx.plugin.client, {
-            message: `Delegation unmet after ${state.totalAttempts} attempt(s) across ${state.escalations} escalation(s)`,
-            variant: "warning",
-          });
-          return (
-            `[router status: unmet] The delegated result was not accepted after ` +
-            `${state.totalAttempts} attempt(s) across ${state.escalations} escalation(s) ` +
-            `(final tier ${state.currentTier}; ${action.reason ?? "verification failed"}).\n\n` +
-            `${scrubText(producerText)}\n\n${note}`
-          );
+        } finally {
+          // Per-attempt cleanup (drop producer session tracking + state).
+          // Always runs — even on timeout, abort, or throw from
+          // session.prompt / gate — so a single stuck or cancelled subagent
+          // cannot leak tracking entries forever.
+          // SDD fix-session-ghost-tui-jump: conditionally abort based on success.
+          await cleanupProducerSession(ctx, producerSid, !attemptSucceeded);
         }
-        // retry or escalate
-        forcing = action.forcingMessage ?? null;
-        const prevTier = state.currentTier;
-        state = advance(state, action);
-        // Re-seed reasoning ladder fields on the new tier after escalation.
-        if (action.action === "escalate" && action.tier) {
-          state = enterTier(state, action.tier);
-        }
-        // PR5: structured routing.escalated event — fires on the
-        // from→to transition only (retry stays in the same tier, so no
-        // event). `attempt` is the escalation index from the ladder.
-        if (action.action === "escalate" && action.tier && action.tier !== prevTier) {
-          logEscalation(
-            producerSid,
-            prevTier,
-            action.tier,
-            "verification-fail",
-            state.totalAttempts,
-          );
-        }
-        // WU-6: bump action — log the reasoning-level escalation within the tier.
-        if (action.action === "bump") {
-          logEvent.routing.escalated({
-            sid: producerSid,
-            from: prevTier,
-            to: prevTier,
-            reason: "reasoning-bump",
-            attempts: state.totalAttempts,
-          });
-        }
-      } finally {
-        // Per-attempt cleanup (drop producer session tracking + state).
-        // Always runs — even on timeout, abort, or throw from
-        // session.prompt / gate — so a single stuck or cancelled subagent
-        // cannot leak tracking entries forever.
-        // SDD fix-session-ghost-tui-jump: conditionally abort based on success.
-        await cleanupProducerSession(ctx, producerSid, !attemptSucceeded);
       }
-    }
     } finally {
       // WU-6: baseline restore sweep — restore all patched agent defs to their
       // pre-patch baselines. Runs on every exit path (accept, give_up, throw,

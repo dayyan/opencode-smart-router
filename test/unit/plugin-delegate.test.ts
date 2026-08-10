@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "../../src/plugin/context";
 import { executeDelegate } from "../../src/plugin/delegate";
+import * as agentsModule from "../../src/router/agents";
 import type { RouterConfig } from "../../src/router/config";
 import { resolveTierModelGuard } from "../../src/utils/tier-model-guard";
 
@@ -2613,11 +2614,31 @@ const makeReasoningCfg = (overrides?: {
 
   // Build opencodeConfig.agent so the per-attempt patch has live defs to mutate.
   const agent: Record<string, Record<string, unknown>> = {
-    low: { model: "anthropic/claude-haiku-4-5", mode: "subagent", options: { reasoning_effort: "low" } },
-    medium: { model: "anthropic/claude-sonnet-4", mode: "subagent", options: { reasoning_effort: "medium" } },
-    high: { model: "anthropic/claude-opus-4", mode: "subagent", options: { reasoning_effort: "high" } },
-    xhigh: { model: "anthropic/claude-opus-4", mode: "subagent", options: { reasoning_effort: "xhigh" } },
-    max: { model: "anthropic/claude-opus-4", mode: "subagent", options: { reasoning_effort: "max" } },
+    low: {
+      model: "anthropic/claude-haiku-4-5",
+      mode: "subagent",
+      options: { reasoning_effort: "low" },
+    },
+    medium: {
+      model: "anthropic/claude-sonnet-4",
+      mode: "subagent",
+      options: { reasoning_effort: "medium" },
+    },
+    high: {
+      model: "anthropic/claude-opus-4",
+      mode: "subagent",
+      options: { reasoning_effort: "high" },
+    },
+    xhigh: {
+      model: "anthropic/claude-opus-4",
+      mode: "subagent",
+      options: { reasoning_effort: "xhigh" },
+    },
+    max: {
+      model: "anthropic/claude-opus-4",
+      mode: "subagent",
+      options: { reasoning_effort: "max" },
+    },
   };
 
   return { cfg, agent };
@@ -2635,10 +2656,26 @@ describe("executeDelegate — reasoning-level-escalation (WU-7 T-1/T-3/T-4)", ()
 
     // Accept FAILS on first 3 attempts, PASSES on 4th.
     acceptMock
-      .mockResolvedValueOnce({ accepted: false, verdict: { pass: false, method: "deterministic", reasons: ["fail"] }, dodSource: "inferred" })
-      .mockResolvedValueOnce({ accepted: false, verdict: { pass: false, method: "deterministic", reasons: ["fail"] }, dodSource: "inferred" })
-      .mockResolvedValueOnce({ accepted: false, verdict: { pass: false, method: "deterministic", reasons: ["fail"] }, dodSource: "inferred" })
-      .mockResolvedValueOnce({ accepted: true, verdict: { pass: true, method: "deterministic", reasons: [] }, dodSource: "inferred" });
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        verdict: { pass: true, method: "deterministic", reasons: [] },
+        dodSource: "inferred",
+      });
 
     const { ctx } = makeCtx({
       getConfigImpl: () => cfg,
@@ -2669,8 +2706,16 @@ describe("executeDelegate — reasoning-level-escalation (WU-7 T-1/T-3/T-4)", ()
 
     // Fail first, pass second.
     acceptMock
-      .mockResolvedValueOnce({ accepted: false, verdict: { pass: false, method: "deterministic", reasons: ["fail"] }, dodSource: "inferred" })
-      .mockResolvedValueOnce({ accepted: true, verdict: { pass: true, method: "deterministic", reasons: [] }, dodSource: "inferred" });
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        verdict: { pass: true, method: "deterministic", reasons: [] },
+        dodSource: "inferred",
+      });
 
     const { ctx } = makeCtx({
       getConfigImpl: () => cfg,
@@ -2695,9 +2740,21 @@ describe("executeDelegate — reasoning-level-escalation (WU-7 T-1/T-3/T-4)", ()
 
     // FAIL 1→bump(high), FAIL 2→bump(xhigh, cap exhausted), FAIL 3→escalate(max).
     acceptMock
-      .mockResolvedValueOnce({ accepted: false, verdict: { pass: false, method: "deterministic", reasons: ["fail"] }, dodSource: "inferred" })
-      .mockResolvedValueOnce({ accepted: false, verdict: { pass: false, method: "deterministic", reasons: ["fail"] }, dodSource: "inferred" })
-      .mockResolvedValueOnce({ accepted: true, verdict: { pass: true, method: "deterministic", reasons: [] }, dodSource: "inferred" });
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        verdict: { pass: true, method: "deterministic", reasons: [] },
+        dodSource: "inferred",
+      });
 
     const { ctx } = makeCtx({
       getConfigImpl: () => cfg,
@@ -2724,8 +2781,16 @@ describe("executeDelegate — reasoning-level-escalation (WU-7 T-2 retryable err
 
     // Pass on 2nd attempt (retryable error → retry, then pass).
     acceptMock
-      .mockResolvedValueOnce({ accepted: false, verdict: { pass: false, method: "deterministic", reasons: ["empty"] }, dodSource: "inferred" })
-      .mockResolvedValueOnce({ accepted: true, verdict: { pass: true, method: "deterministic", reasons: [] }, dodSource: "inferred" });
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["empty"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        verdict: { pass: true, method: "deterministic", reasons: [] },
+        dodSource: "inferred",
+      });
 
     const { ctx } = makeCtx({
       getConfigImpl: () => cfg,
@@ -2787,18 +2852,32 @@ describe("executeDelegate — reasoning-level-escalation (WU-7 T-5/T-6 none capa
     } as RouterConfig;
 
     const noneAgent = { model: "anthropic/claude-haiku-4-5", mode: "subagent", options: {} };
-    const highAgent = { model: "anthropic/claude-opus-4", mode: "subagent", options: { reasoning_effort: "high" } };
+    const highAgent = {
+      model: "anthropic/claude-opus-4",
+      mode: "subagent",
+      options: { reasoning_effort: "high" },
+    };
 
     // 3 failures → escalates from noneTier to high (no bump path entered).
     acceptMock
-      .mockResolvedValueOnce({ accepted: false, verdict: { pass: false, method: "deterministic", reasons: ["fail"] }, dodSource: "inferred" })
-      .mockResolvedValueOnce({ accepted: true, verdict: { pass: true, method: "deterministic", reasons: [] }, dodSource: "inferred" });
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        verdict: { pass: true, method: "deterministic", reasons: [] },
+        dodSource: "inferred",
+      });
 
     const { ctx } = makeCtx({
       getConfigImpl: () => cfg,
       refreshConfigImpl: () => cfg,
     });
-    (ctx as unknown as Record<string, unknown>).opencodeConfig = { agent: { noneTier: noneAgent, high: highAgent } };
+    (ctx as unknown as Record<string, unknown>).opencodeConfig = {
+      agent: { noneTier: noneAgent, high: highAgent },
+    };
 
     const out = await executeDelegate(ctx, { task: "reasoning test", tier: "noneTier" });
 
@@ -2816,8 +2895,16 @@ describe("executeDelegate — reasoning-level-escalation (WU-7 T-5/T-6 none capa
     // gateRes.accepted=false but promptCause=undefined (not set) → cause=undefined.
     // canBumpReasoning(cause=undefined) → false → retry.
     acceptMock
-      .mockResolvedValueOnce({ accepted: false, verdict: { pass: false, method: "deterministic", reasons: ["fail"] }, dodSource: "inferred" })
-      .mockResolvedValueOnce({ accepted: true, verdict: { pass: true, method: "deterministic", reasons: [] }, dodSource: "inferred" });
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        verdict: { pass: true, method: "deterministic", reasons: [] },
+        dodSource: "inferred",
+      });
 
     const { ctx } = makeCtx({
       getConfigImpl: () => cfg,
@@ -2840,7 +2927,11 @@ describe("executeDelegate — reasoning-level-escalation (WU-7 B-2/B-3/B-4 lifec
   it("abort mid-loop bypasses per-attempt finally but outer finally restores baselines (B-2)", async () => {
     const { cfg, agent } = makeReasoningCfg({ maxLevelBumpsPerTier: 2, maxAttemptsPerTier: 1 });
 
-    acceptMock.mockResolvedValue({ accepted: false, verdict: { pass: false, method: "deterministic", reasons: ["fail"] }, dodSource: "inferred" });
+    acceptMock.mockResolvedValue({
+      accepted: false,
+      verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+      dodSource: "inferred",
+    });
 
     const ac = new AbortController();
     let promptCount = 0;
@@ -2859,7 +2950,12 @@ describe("executeDelegate — reasoning-level-escalation (WU-7 B-2/B-3/B-4 lifec
     });
     (ctx as unknown as Record<string, unknown>).opencodeConfig = { agent };
 
-    const out = await executeDelegate(ctx, { task: "reasoning test", tier: "medium" }, undefined, ac.signal);
+    const out = await executeDelegate(
+      ctx,
+      { task: "reasoning test", tier: "medium" },
+      undefined,
+      ac.signal,
+    );
 
     // Abort returns "" silently.
     expect(out).toBe("");
@@ -2872,7 +2968,11 @@ describe("executeDelegate — reasoning-level-escalation (WU-7 B-2/B-3/B-4 lifec
   it("session.create throws non-abort: outer catch fail-closed, outer finally still ran (B-3)", async () => {
     const { cfg, agent } = makeReasoningCfg({ maxLevelBumpsPerTier: 2, maxAttemptsPerTier: 1 });
 
-    acceptMock.mockResolvedValue({ accepted: false, verdict: { pass: false, method: "deterministic", reasons: ["fail"] }, dodSource: "inferred" });
+    acceptMock.mockResolvedValue({
+      accepted: false,
+      verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+      dodSource: "inferred",
+    });
 
     const unregisterCalls: string[] = [];
 
@@ -2898,11 +2998,23 @@ describe("executeDelegate — reasoning-level-escalation (WU-7 B-2/B-3/B-4 lifec
   it("restoreAgentBaseline throws for one tier: others restored, warn logged (B-4)", async () => {
     const { cfg, agent } = makeReasoningCfg({ maxLevelBumpsPerTier: 2, maxAttemptsPerTier: 1 });
 
+    // Mark medium tier's baseline to throw when restore is attempted.
+    // This seeds __throwOnRestore into the snapshot taken inside executeDelegate.
+    (agent.medium as Record<string, unknown>).__throwOnRestore = true;
+
     // Single failure (no bumps triggered since maxAttemptsPerTier=1 would trigger
     // escalate, but we'll accept first and bump the second).
     acceptMock
-      .mockResolvedValueOnce({ accepted: false, verdict: { pass: false, method: "deterministic", reasons: ["fail"] }, dodSource: "inferred" })
-      .mockResolvedValueOnce({ accepted: true, verdict: { pass: true, method: "deterministic", reasons: [] }, dodSource: "inferred" });
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        verdict: { pass: true, method: "deterministic", reasons: [] },
+        dodSource: "inferred",
+      });
 
     const { ctx } = makeCtx({
       getConfigImpl: () => cfg,
@@ -2914,29 +3026,38 @@ describe("executeDelegate — reasoning-level-escalation (WU-7 B-2/B-3/B-4 lifec
     const { log } = await import("../../src/utils/observability");
     const warnSpy = vi.spyOn(log, "warn").mockImplementation(() => {});
 
-    // B-4 full coverage: injecting a throw into restoreAgentBaseline from outside
-    // the delegate requires modifying production code (the sweep loop), which WU-7
-    // tests do not do. The best-effort try/catch in the sweep (delegate.ts:631)
-    // is structurally exercised by the outer finally; the warn-logging on individual
-    // tier failure is confirmed by the sweep loop's error handling. We verify the
-    // happy-path: all tiers are restored after the loop completes.
+    // Spy on restoreAgentBaseline: throw for any baseline marked with __throwOnRestore.
+    const restoreSpy = vi.spyOn(agentsModule, "restoreAgentBaseline");
+    restoreSpy.mockImplementation(
+      (def: Record<string, unknown>, baseline: Record<string, unknown>) => {
+        if (baseline.__throwOnRestore) {
+          throw new Error("simulated restore failure");
+        }
+        // Original behavior: clear def and copy baseline entries.
+        for (const key of Object.keys(def)) delete def[key];
+        for (const [k, v] of Object.entries(baseline)) def[k] = v;
+      },
+    );
+
     const out = await executeDelegate(ctx, { task: "reasoning test", tier: "medium" });
 
+    // Delegation result is preserved (not affected by the restore throw).
     expect(out).toContain("[router \u2713 accepted: deterministic]");
-    // All tiers restored to baseline.
-    expect(agent.medium.options).toEqual({ reasoning_effort: "medium" });
+
+    // medium tier threw during restore — its state is uncertain (depends on whether
+    // the throw happened before or after the def was cleared). The key assertion
+    // is that the warn was logged and other tiers are intact.
+    const baselineRestoreFailedCalls = warnSpy.mock.calls.filter(
+      (call) => (call[0] as Record<string, unknown>)?.event === "delegate.baseline_restore_failed",
+    );
+    expect(baselineRestoreFailedCalls.length).toBeGreaterThan(0);
+
+    // Other tiers (high, xhigh) are restored to baseline despite medium's failure.
     expect(agent.high.options).toEqual({ reasoning_effort: "high" });
     expect(agent.xhigh.options).toEqual({ reasoning_effort: "xhigh" });
 
+    restoreSpy.mockRestore();
     warnSpy.mockRestore();
-
-    // B-4 full coverage: we cannot easily inject a throw into restoreAgentBaseline
-    // from outside the delegate without modifying production code. The best-effort
-    // try/catch in the sweep (delegate.ts:631) is exercised by the code path; the
-    // warn-logging on individual tier failure is tested via the structure above.
-    // The complete B-4 assertion is that: (a) other tiers ARE restored even if one
-    // throws, and (b) a warn is logged for the failing tier. These are confirmed
-    // by the outer finally structure and the try/catch in the sweep loop.
   });
 });
 
@@ -2964,11 +3085,31 @@ describe("executeDelegate — reasoning-level-escalation (WU-7 R-2 prompt-seam w
 
     // 5 accepts: FAIL1→bump, FAIL2→bump, FAIL3→retry@xhigh, FAIL4→escalate, PASS5.
     acceptMock
-      .mockResolvedValueOnce({ accepted: false, verdict: { pass: false, method: "deterministic", reasons: ["fail"] }, dodSource: "inferred" })
-      .mockResolvedValueOnce({ accepted: false, verdict: { pass: false, method: "deterministic", reasons: ["fail"] }, dodSource: "inferred" })
-      .mockResolvedValueOnce({ accepted: false, verdict: { pass: false, method: "deterministic", reasons: ["fail"] }, dodSource: "inferred" })
-      .mockResolvedValueOnce({ accepted: false, verdict: { pass: false, method: "deterministic", reasons: ["fail"] }, dodSource: "inferred" })
-      .mockResolvedValueOnce({ accepted: true, verdict: { pass: true, method: "deterministic", reasons: [] }, dodSource: "inferred" });
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        verdict: { pass: true, method: "deterministic", reasons: [] },
+        dodSource: "inferred",
+      });
 
     const { ctx } = makeCtx({
       getConfigImpl: () => cfg,
@@ -2977,7 +3118,9 @@ describe("executeDelegate — reasoning-level-escalation (WU-7 R-2 prompt-seam w
         // R-2 assertion: read the LIVE agent def at the moment session.prompt fires.
         const calledTier = (req as { body?: { agent?: string } })?.body?.agent;
         if (calledTier && (ctx as unknown as Record<string, unknown>).opencodeConfig) {
-          const opencfg = (ctx as unknown as Record<string, unknown>).opencodeConfig as { agent?: Record<string, Record<string, unknown>> };
+          const opencfg = (ctx as unknown as Record<string, unknown>).opencodeConfig as {
+            agent?: Record<string, Record<string, unknown>>;
+          };
           const liveDef = opencfg.agent?.[calledTier];
           if (liveDef) {
             recordedEfforts.push({

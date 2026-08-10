@@ -409,7 +409,6 @@
       },
       "focused": {
         "model": "minimax-coding-plan/MiniMax-M3",
-        "variant": "thinking",
         "costRatio": 10,
         "description": "Lead Investigator: deep single-system forensics, advisory. Root-cause isolation, performance profiling, one-module review. Advises; spans systems to @heavy.",
         "steps": 80,
@@ -427,7 +426,7 @@
         "description": "Staff Architect: senior advisory. Architecture, security review, multi-system tradeoffs, migration strategy, RCA after ≥2 prior failures. No self-recon.",
         "steps": 120,
         "reasoning": {
-          "effort": "xhigh",
+          "effort": "medium",
           "summary": "detailed"
         },
         "capability": { "kind": "discrete", "field": "reasoning.effort", "levels": ["low", "medium", "high", "xhigh"] },

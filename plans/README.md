@@ -54,8 +54,15 @@ See "### Audit cycle 4" below for the reconciliation notes.
 | 031  | Pass only the configured env-gate variable into guard evaluation | P2 | S | LOW–MED | 029 (same-file sequencing) | TODO |
 | 032  | Align Guard Resolver envGate Access Path With the Typed Config | P1 | S | LOW | 031 | DONE (SDD cycle, obs #4084–4090) |
 | 033  | Restore 1:1 TypeScript Parity in the ReScript Guard Engine | P1 | M | LOW–MED | — | DONE |
+| 034  | Add reasoning-level escalation on retry (bump before tier fallback) | P2 | M | MED | — | DONE (SDD cycle, obs #4121/#4123/#4124/#4134/#4135; verify-report PASS; branch `advisor/034-reasoning-bump-escalation`) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale).
+
+> **Plan 034** (added 2026-08-09 against `7064e0d`): single feature plan via the
+> `improve plan` variant, not part of an audit cycle. On verification FAIL, bump
+> the reasoning level up the tier's own `capability.levels` ladder (index-based,
+> default cap 2) before falling back to the next tier. `none`-capability tiers
+> are unchanged. See `plans/034-reasoning-level-escalation-on-retry.md`.
 
 > Note: Plan files `017-*.md` through `022-*.md` exist on disk but were
 > authored outside this index (SDD mid-cycle artifacts). They are NOT
