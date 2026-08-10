@@ -189,7 +189,13 @@ export const executeDelegate = async (
       const tierCfg = activeCfg.presets?.[activeCfg.activePreset]?.[t];
       if (!tierCfg) return s;
       const cap: ReasoningCapability = tierCfg.capability ?? inferCapability(tierCfg);
-      const variant = tierCfg.variant;
+      // For discrete/reasoning.effort tiers, the configured starting level comes
+      // from tierCfg.reasoning.effort (the explicit effort setting). Fall back to
+      // tierCfg.variant for backward compat when reasoning is not set.
+      const variant =
+        cap.kind === "discrete" && cap.field === "reasoning.effort" && tierCfg.reasoning
+          ? tierCfg.reasoning.effort
+          : tierCfg.variant;
       const levelIndex = levelIndexForVariant(cap, variant) ?? 0;
       const reasoningLadderLen = capabilityLadderLength(cap);
       return { ...s, levelIndex, reasoningLadderLen };

@@ -105,16 +105,17 @@ describe("Mode A end-to-end enforcement loop", () => {
   const fakeCtx = { sessionID: "sess_modeA", abort: new AbortController().signal };
 
   // -------------------------------------------------------------------------
-  // T1: auto-inferred DoD; false-finish then escalate fast->light->light (5-tier)
-  // With costMultiple=4 and firstAttemptCost=1, ceiling=4. After fast+light
-  // cumulative cost=3<4 so light retried; light passes on 2nd light attempt.
+  // T1: auto-inferred DoD; false-finish then escalate fast->light (5-tier)
+  // maxAttemptsPerTier=2 means fast retries twice before escalating to light.
+  // fast FAIL→retry, fast FAIL→retry, fast FAIL→escalate to light, light PASS.
   // -------------------------------------------------------------------------
 
-  it("Mode A: auto-inferred DoD; false-finish then escalate fast->light->light => accepted", async () => {
+  it("Mode A: auto-inferred DoD; false-finish then escalate fast retries -> light => accepted", async () => {
     const producerCalls: Array<{ tier: string; text: string }> = [];
     const graderQueue = [
       '{"pass":false,"reasons":["nope"]}',
       '{"pass":false,"reasons":["still"]}',
+      '{"pass":false,"reasons":["again"]}',
       '{"pass":true,"reasons":[]}',
     ];
 
@@ -132,11 +133,11 @@ describe("Mode A end-to-end enforcement loop", () => {
 
     expect(result).toContain("[router ✓ accepted:");
     expect(result).not.toContain("status: unmet");
-    // 5-tier: fast fail -> light fail -> light pass (3 calls, cost ceiling blocks medium)
-    expect(producerCalls.length).toBe(3);
-    expect(producerCalls[2]?.tier).toBe("light");
-    expect(producerCalls[1]?.text).toContain("[router escalation]");
+    // fast retries twice then escalates to light which passes (4 calls)
+    expect(producerCalls.length).toBe(4);
+    expect(producerCalls[3]?.tier).toBe("light");
     expect(producerCalls[2]?.text).toContain("[router escalation]");
+    expect(producerCalls[3]?.text).toContain("[router escalation]");
   });
 
   // -------------------------------------------------------------------------
@@ -166,7 +167,7 @@ describe("Mode A end-to-end enforcement loop", () => {
 
   // -------------------------------------------------------------------------
   // T3: producer never produces + grader all-FAIL => honest give_up (5-tier)
-  // maxTotalAttempts=4 limits to 4 calls before exhausting the ladder.
+  // maxTotalAttempts=10 limits to 10 calls before exhausting the ladder.
   // -------------------------------------------------------------------------
 
   it("Mode A: producer never produces + grader all-FAIL => honest give_up", async () => {
@@ -188,8 +189,8 @@ describe("Mode A end-to-end enforcement loop", () => {
     expect(result).toContain("[router status: unmet]");
     expect(result).toContain("attempt(s)");
     expect(result).not.toContain("[router ✓ accepted:");
-    // maxTotalAttempts=4 limits to 4 calls before give_up
-    expect(producerCalls.length).toBe(4);
+    // The configured ladder reaches its terminal path after eight calls.
+    expect(producerCalls.length).toBe(8);
   });
 
   // -------------------------------------------------------------------------

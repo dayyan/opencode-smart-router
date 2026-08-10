@@ -3160,3 +3160,127 @@ describe("executeDelegate — reasoning-level-escalation (WU-7 R-2 prompt-seam w
     expect(agent.xhigh.options).toEqual({ reasoning_effort: "xhigh" });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression: heavy tier with reasoning.effort but no variant must start at
+// the configured effort level (medium), not fall back to index 0 (low).
+// ---------------------------------------------------------------------------
+describe("executeDelegate — reasoning.effort without variant starts at configured level", () => {
+  it("starts at medium (not low), bumps to high then xhigh on verification failures", async () => {
+    // Tier "heavy" has reasoning.effort="medium" and NO variant.
+    // Capability declares discrete/reasoning.effort ladder [low,medium,high,xhigh].
+    // The agent def initially has reasoning_effort="medium" (the configured baseline).
+    const cfg: RouterConfig = {
+      activePreset: "default",
+      defaultTier: "heavy",
+      presets: {
+        default: {
+          heavy: {
+            model: "openai/gpt-5.6-terra",
+            description: "heavy",
+            whenToUse: [],
+            costRatio: 1,
+            // NOTE: no `variant` field — starting level must come from reasoning.effort
+            reasoning: { effort: "medium" },
+            capability: {
+              kind: "discrete",
+              field: "reasoning.effort",
+              levels: ["low", "medium", "high", "xhigh"],
+            },
+          },
+        },
+      },
+      rules: [],
+      enforcement: {
+        verify: { require: "always", graderTemperature: 0 },
+        escalate: {
+          ladder: ["heavy"],
+          maxAttemptsPerTier: 4,
+          maxTotalAttempts: 20,
+          costCeiling: { multiple: 100 },
+          reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 },
+        },
+      },
+    } as RouterConfig;
+
+    const agent: Record<string, Record<string, unknown>> = {
+      heavy: {
+        model: "openai/gpt-5.6-terra",
+        mode: "subagent",
+        options: { reasoning_effort: "medium" },
+      },
+    };
+
+    const recordedEfforts: unknown[] = [];
+
+    // Default: fail unless explicitly overridden. Use mockReturnValue so subsequent
+    // calls (if any) don't cause "undefined verdict" errors.
+    acceptMock.mockReturnValue({
+      accepted: false,
+      verdict: { pass: false, method: "deterministic", reasons: ["default-fail"] },
+      dodSource: "inferred",
+    });
+    // Override first 4 with explicit deterministic FAILs.
+    acceptMock
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      });
+
+    const { ctx } = makeCtx({
+      getConfigImpl: () => cfg,
+      refreshConfigImpl: () => cfg,
+      promptImpl: async (req: unknown) => {
+        const calledTier = (req as { body?: { agent?: string } })?.body?.agent;
+        if (calledTier) {
+          const opencfg = (ctx as unknown as Record<string, unknown>).opencodeConfig as {
+            agent?: Record<string, Record<string, unknown>>;
+          };
+          const liveDef = opencfg.agent?.[calledTier];
+          if (liveDef) {
+            recordedEfforts.push((liveDef.options as Record<string, unknown>)?.reasoning_effort);
+          }
+        }
+        return { data: { parts: [{ type: "text", text: "done" }] } };
+      },
+    });
+    (ctx as unknown as Record<string, unknown>).opencodeConfig = { agent };
+
+    const out = await executeDelegate(ctx, { task: "reasoning effort start level", tier: "heavy" });
+
+    // With maxLevelBumpsPerTier=2, we get: FAIL→bump(high), FAIL→bump(xhigh),
+    // FAIL→stay@xhigh (can't bump higher), FAIL→give-up (exhausted bumps, no next tier).
+    expect(out).toContain("unmet");
+    expect(out).toContain("already at top of ladder");
+
+    // CRITICAL: first attempt must be "medium" (configured level), NOT "low".
+    // This is the regression: without the fix, enterTier falls back to index 0 (low)
+    // because tierCfg.variant is undefined for a reasoning.effort tier.
+    expect(recordedEfforts[0]).toBe("medium");
+    // Then bumps to high on second attempt.
+    expect(recordedEfforts[1]).toBe("high");
+    // Then bumps to xhigh on third attempt (top of ladder).
+    expect(recordedEfforts[2]).toBe("xhigh");
+    // Fourth failure stays at xhigh — does NOT wrap to low or reset to medium.
+    expect(recordedEfforts[3]).toBe("xhigh");
+
+    // Baselines are restored after loop.
+    expect(agent.heavy.options).toEqual({ reasoning_effort: "medium" });
+  });
+});

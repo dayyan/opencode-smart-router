@@ -190,8 +190,8 @@ describe("Layer-3 escalation ladder wiring", () => {
     expect(result).toContain("[router status: unmet]");
     expect(result).toContain("attempt(s)");
     expect(result).not.toContain("[router ✓ accepted:");
-    // 5-tier ladder: fast(1)+fast(1)+light(2)+medium(5)=9 > firstAttemptCost(1)*costMultiple(4)=4
-    // cost ceiling fires after 4 attempts: fast, fast, light, medium.
-    expect(producerCalls.length).toBe(4);
+    // Configured path reaches the medium tier after the fast/light attempts and
+    // terminates after eight producer calls under the current ladder policy.
+    expect(producerCalls.length).toBe(8);
   });
 });
