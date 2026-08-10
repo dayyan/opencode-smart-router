@@ -15,6 +15,7 @@ import {
   tierRank,
 } from "../../src/escalate/ladder";
 import type { RouterConfig } from "../../src/router/config";
+import { canBumpReasoning } from "../../src/escalate/ladder";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -37,6 +38,7 @@ const makePolicy = (overrides: Partial<EscalatePolicy> = {}): EscalatePolicy => 
     maxAttemptsPerTier: 1,
     maxTotalAttempts: 4,
     costMultiple: null,
+    reasoningEscalation: { enabled: false, maxLevelBumpsPerTier: 2 },
     ...overrides,
   };
 };
@@ -49,6 +51,9 @@ const makeState = (overrides: Partial<LadderState> = {}): LadderState => {
     escalations: 0,
     firstAttemptCost: null,
     cumulativeCost: 0,
+    levelIndex: 0,
+    bumpsThisTier: 0,
+    reasoningLadderLen: 0,
   };
   return { ...base, ...overrides };
 };
@@ -1040,5 +1045,78 @@ describe("nextAction — AbortSignal guard", () => {
       expect(a.action, `seed=${seed}`).toBe("give_up");
       expect(a.reason, `seed=${seed}`).toBe("aborted");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// canBumpReasoning — pure gating function for the bump branch
+//
+// Truth table:
+//   T-1: enabled + tierHasLadder + bumpsLeft + verification_fail  → true
+//   T-2: enabled + tierHasLadder + bumpsLeft + retryable_error   → false
+//   T-3: enabled + tierHasLadder + bumpsLeft + no cause          → false
+//   T-4: enabled + tierHasLadder + bumpsLeft + cause=undefined    → false
+//   T-5: enabled + tierHasLadder + bumpsLeft=0 + verification_fail → false (no bumps left)
+//   T-6: enabled + tierHasLadder=0 + verification_fail            → false (no ladder)
+//   T-7: enabled=false + verification_fail                       → false (feature off)
+// ---------------------------------------------------------------------------
+
+describe("canBumpReasoning", () => {
+  const ladder3 = ["fast", "medium", "heavy"];
+
+  // T-1: true
+  it("T-1: returns true when enabled, tierHasLadder, bumpsLeft>0, cause=verification_fail", () => {
+    const p = makePolicy({ reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 } });
+    const s = makeState({ reasoningLadderLen: 3, levelIndex: 0, bumpsThisTier: 0 });
+    const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
+    expect(canBumpReasoning(s, p, verdict)).toBe(true);
+  });
+
+  // T-2: false (retryable_error)
+  it("T-2: returns false when cause=retryable_error (even with bumps left)", () => {
+    const p = makePolicy({ reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 } });
+    const s = makeState({ reasoningLadderLen: 3, levelIndex: 0, bumpsThisTier: 0 });
+    const verdict: LadderVerdict = { pass: false, cause: "retryable_error" };
+    expect(canBumpReasoning(s, p, verdict)).toBe(false);
+  });
+
+  // T-3: false (no cause field)
+  it("T-3: returns false when cause is absent (verdict has no cause field)", () => {
+    const p = makePolicy({ reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 } });
+    const s = makeState({ reasoningLadderLen: 3, levelIndex: 0, bumpsThisTier: 0 });
+    const verdict: LadderVerdict = { pass: false };
+    expect(canBumpReasoning(s, p, verdict)).toBe(false);
+  });
+
+  // T-4: false (cause=undefined)
+  it("T-4: returns false when cause=undefined", () => {
+    const p = makePolicy({ reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 } });
+    const s = makeState({ reasoningLadderLen: 3, levelIndex: 0, bumpsThisTier: 0 });
+    const verdict: LadderVerdict = { pass: false, cause: undefined };
+    expect(canBumpReasoning(s, p, verdict)).toBe(false);
+  });
+
+  // T-5: false (no bumps left)
+  it("T-5: returns false when bumpsThisTier >= maxLevelBumpsPerTier (no bumps left)", () => {
+    const p = makePolicy({ reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 } });
+    const s = makeState({ reasoningLadderLen: 3, levelIndex: 2, bumpsThisTier: 2 });
+    const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
+    expect(canBumpReasoning(s, p, verdict)).toBe(false);
+  });
+
+  // T-6: false (no ladder)
+  it("T-6: returns false when reasoningLadderLen=0 (tier has no ladder)", () => {
+    const p = makePolicy({ reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 } });
+    const s = makeState({ reasoningLadderLen: 0, levelIndex: 0, bumpsThisTier: 0 });
+    const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
+    expect(canBumpReasoning(s, p, verdict)).toBe(false);
+  });
+
+  // T-7: false (feature off)
+  it("T-7: returns false when enabled=false (feature off)", () => {
+    const p = makePolicy({ reasoningEscalation: { enabled: false, maxLevelBumpsPerTier: 2 } });
+    const s = makeState({ reasoningLadderLen: 3, levelIndex: 0, bumpsThisTier: 0 });
+    const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
+    expect(canBumpReasoning(s, p, verdict)).toBe(false);
   });
 });

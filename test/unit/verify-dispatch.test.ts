@@ -1586,6 +1586,9 @@ describe("dumpDelegateScorecard", () => {
       escalations: 1,
       firstAttemptCost: 1,
       cumulativeCost: 7,
+      levelIndex: 0,
+      bumpsThisTier: 0,
+      reasoningLadderLen: 0,
     };
 
     dumpDelegateScorecard(sid, state, true, "deterministic");
@@ -1614,6 +1617,9 @@ describe("dumpDelegateScorecard", () => {
       escalations: 0,
       firstAttemptCost: 1,
       cumulativeCost: 1,
+      levelIndex: 0,
+      bumpsThisTier: 0,
+      reasoningLadderLen: 0,
     };
 
     dumpDelegateScorecard(sid, { ...base }, true, "deterministic");

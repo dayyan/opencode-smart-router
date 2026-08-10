@@ -13,6 +13,10 @@ export interface EscalatePolicy {
   maxAttemptsPerTier: number;
   maxTotalAttempts: number;
   costMultiple?: number | null;
+  reasoningEscalation?: {
+    enabled?: boolean;
+    maxLevelBumpsPerTier?: number;
+  };
 }
 
 export interface LadderState {
@@ -22,9 +26,15 @@ export interface LadderState {
   escalations: number;
   firstAttemptCost: number | null;
   cumulativeCost: number;
+  /** Current level index within the tier's reasoning ladder. Resets on tier change. */
+  levelIndex: number;
+  /** Number of level bumps applied within the current tier. Resets on tier change. */
+  bumpsThisTier: number;
+  /** Length of this tier's reasoning ladder (0 = no ladder). Set by enterTier. */
+  reasoningLadderLen: number;
 }
 
-export type LadderActionKind = "accept" | "retry" | "escalate" | "give_up";
+export type LadderActionKind = "accept" | "retry" | "escalate" | "give_up" | "bump";
 
 export interface LadderAction {
   action: LadderActionKind;
@@ -36,6 +46,8 @@ export interface LadderAction {
 export interface LadderVerdict {
   pass: boolean;
   reasons?: string[];
+  /** Why the verdict was reached. Used by canBumpReasoning to gate the bump branch. */
+  cause?: "verification_fail" | "retryable_error";
 }
 
 // ---------------------------------------------------------------------------
@@ -61,6 +73,9 @@ export const newLadderState = (producerTier: string, policy: EscalatePolicy): La
     escalations: 0,
     firstAttemptCost: null,
     cumulativeCost: 0,
+    levelIndex: 0,
+    bumpsThisTier: 0,
+    reasoningLadderLen: 0,
   };
 };
 
@@ -90,6 +105,28 @@ export const buildLadderForcingMessage = (reasons: string[]): string => {
     list +
     `\nNEXT: retry with these failures addressed.`
   );
+};
+
+/**
+ * Pure gating function for the bump branch. Returns true only when:
+ *   - feature is enabled (policy.reasoningEscalation.enabled === true)
+ *   - the current tier has a reasoning ladder (state.reasoningLadderLen > 0)
+ *   - there are bumps remaining within this tier
+ *     (state.bumpsThisTier < policy.reasoningEscalation.maxLevelBumpsPerTier)
+ *   - the verdict cause is "verification_fail" (not "retryable_error" or absent)
+ */
+export const canBumpReasoning = (
+  state: LadderState,
+  policy: EscalatePolicy,
+  verdict: LadderVerdict | null | undefined,
+): boolean => {
+  const re = policy.reasoningEscalation;
+  if (!re?.enabled) return false;
+  if (state.reasoningLadderLen <= 0) return false;
+  const bumpsLeft = (re.maxLevelBumpsPerTier ?? 2) - state.bumpsThisTier;
+  if (bumpsLeft <= 0) return false;
+  if (verdict?.cause !== "verification_fail") return false;
+  return true;
 };
 
 export const nextAction = (
@@ -177,6 +214,7 @@ export const buildEscalatePolicy = (cfg: RouterConfig): EscalatePolicy => {
     maxAttemptsPerTier: esc?.maxAttemptsPerTier ?? 1,
     maxTotalAttempts: esc?.maxTotalAttempts ?? 4,
     costMultiple: esc?.costCeiling?.multiple ?? 4,
+    reasoningEscalation: esc?.reasoningEscalation ?? { enabled: false, maxLevelBumpsPerTier: 2 },
   };
 };
 
