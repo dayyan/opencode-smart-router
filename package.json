@@ -1,6 +1,6 @@
 {
   "name": "opencode-smart-router",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "OpenCode plugin that routes tasks to tiered subagents (fast/medium/heavy) based on complexity",
   "type": "module",
   "main": "./src/index.ts",
@@ -61,8 +61,8 @@
     "@opencode-ai/plugin": ">=1.0.0"
   },
   "devDependencies": {
-    "@opencode-ai/plugin": "1.18.15",
     "@biomejs/biome": "^2.5.7",
+    "@opencode-ai/plugin": "1.18.15",
     "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "^4.1.10",
     "cross-env": "^10.1.0",
