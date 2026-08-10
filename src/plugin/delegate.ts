@@ -16,6 +16,7 @@ import {
   advance,
   buildEscalatePolicy,
   dumpDelegateScorecard,
+  type LadderVerdict,
   logDelegation,
   logEscalation,
   newLadderState,
@@ -23,6 +24,14 @@ import {
   recordAttempt,
 } from "../escalate/ladder";
 import { scrubText } from "../guard/scrub";
+import type { ReasoningCapability } from "../reasoning/capability.js";
+import { inferCapability } from "../reasoning/capability.js";
+import {
+  capabilityLadderLength,
+  levelIndexForVariant,
+  translateAtIndex,
+} from "../reasoning/translate.js";
+import { applyReasoningPatch, restoreAgentBaseline } from "../router/agents.js";
 import type { Preset } from "../router/config";
 import { getActiveTiers } from "../router/protocol";
 import { classifyPromptError } from "../utils/error-classify";
@@ -169,8 +178,26 @@ export const executeDelegate = async (
     });
 
     const policy = buildEscalatePolicy(activeCfg);
-    let state = newLadderState(initialTier, policy);
     const tiersForCost: Preset = getActiveTiers(activeCfg);
+
+    // -------------------------------------------------------------------------
+    // enterTier — resolve levelIndex + reasoningLadderLen from capability.
+    // Function-scope so concurrent delegate invocations never share state.
+    // -------------------------------------------------------------------------
+    type LadderState = ReturnType<typeof newLadderState>;
+    const enterTier = (s: LadderState, t: string): LadderState => {
+      const tierCfg = activeCfg.presets?.[activeCfg.activePreset]?.[t];
+      if (!tierCfg) return s;
+      const cap: ReasoningCapability = tierCfg.capability ?? inferCapability(tierCfg);
+      const variant = tierCfg.variant;
+      const levelIndex = levelIndexForVariant(cap, variant) ?? 0;
+      const reasoningLadderLen = capabilityLadderLength(cap);
+      return { ...s, levelIndex, reasoningLadderLen };
+    };
+
+    let state = newLadderState(initialTier, policy);
+    // Seed reasoning ladder fields on the initial tier.
+    state = enterTier(state, state.currentTier);
 
     // Independent safety net: even a policy bug cannot loop unbounded.
     const safetyMax =
@@ -181,6 +208,12 @@ export const executeDelegate = async (
     let forcing: string | null = null;
     let attemptCounter = 0;
 
+    // Per-tier baseline snapshot for reasoning patch restoration.
+    // Declared INSIDE executeDelegate (function-scope) so concurrent
+    // invocations never share the map (R-5 from spec).
+    const tierBaselines = new Map<string, Record<string, unknown>>();
+
+    try {
     while (true) {
       // Abort check (1): top of loop. If we were cancelled while idle
       // (between attempts, before the loop, or after the last cleanup),
@@ -324,6 +357,41 @@ export const executeDelegate = async (
         }
         const model = guard.model;
         producerText = "";
+
+        // Cause threading: tracks whether the current prompt attempt produced
+        // a retryable error (vs a clean prompt whose result was gate-rejected).
+        let promptCause: LadderVerdict["cause"];
+
+        // Per-attempt reasoning patch — snapshot baseline once per tier, then
+        // apply the reasoning-level patch for the current ladder rung.
+        const agentDef =
+          state.reasoningLadderLen > 0 ? ctx.opencodeConfig?.agent?.[tier] : undefined;
+        if (agentDef && state.reasoningLadderLen > 0) {
+          // Snapshot baseline before mutating — used by outer finally sweep.
+          if (!tierBaselines.has(tier)) {
+            tierBaselines.set(tier, { ...agentDef });
+          }
+          // Apply reasoning patch for the current level.
+          const tierCfg = activeCfg.presets?.[activeCfg.activePreset]?.[tier];
+          // Prefer explicit capability; fall back to inference from tier fields.
+          // The non-null `tierCfg` branch is always taken when agentDef is set
+          // because agentDef is sourced from opencodeConfig.agent[tier] which
+          // only exists when tierCfg was used to build it. The else branch is
+          // purely for TypeScript narrowing — tierCfg would be defined at this
+          // point but the type-system needs the explicit guard.
+          const cap: ReasoningCapability = (() => {
+            if (tierCfg) {
+              return tierCfg.capability ?? inferCapability(tierCfg);
+            }
+            const unsafe = activeCfg.presets?.[activeCfg.activePreset]?.[tier];
+            return unsafe ? inferCapability(unsafe) : { kind: "none" };
+          })();
+          const patch = translateAtIndex(cap, state.levelIndex);
+          if (patch) {
+            applyReasoningPatch(agentDef, patch);
+          }
+        }
+
         // Provider-failover vs quality-escalation precedence (Phase 3.3):
         // Provider-failover is advisory only — a text chain injected into the orchestrator
         // system prompt (buildFallbackInstructions). It is orthogonal to this runtime ladder.
@@ -411,6 +479,9 @@ export const executeDelegate = async (
           // time and in code review — not silently discarded.
           void err;
           producerText = "";
+          // Thread the cause so nextAction can distinguish retryable_error
+          // from a clean prompt that the gate rejected.
+          promptCause = "retryable_error";
         }
 
         const artefact = {
@@ -464,7 +535,11 @@ export const executeDelegate = async (
 
         const action = nextAction(
           state,
-          { pass: gateRes.accepted, reasons: gateRes.verdict.reasons },
+          {
+            pass: gateRes.accepted,
+            reasons: gateRes.verdict.reasons,
+            cause: gateRes.accepted ? undefined : (promptCause ?? "verification_fail"),
+          },
           policy,
           signal,
         );
@@ -510,6 +585,10 @@ export const executeDelegate = async (
         forcing = action.forcingMessage ?? null;
         const prevTier = state.currentTier;
         state = advance(state, action);
+        // Re-seed reasoning ladder fields on the new tier after escalation.
+        if (action.action === "escalate" && action.tier) {
+          state = enterTier(state, action.tier);
+        }
         // PR5: structured routing.escalated event — fires on the
         // from→to transition only (retry stays in the same tier, so no
         // event). `attempt` is the escalation index from the ladder.
@@ -522,6 +601,16 @@ export const executeDelegate = async (
             state.totalAttempts,
           );
         }
+        // WU-6: bump action — log the reasoning-level escalation within the tier.
+        if (action.action === "bump") {
+          logEvent.routing.escalated({
+            sid: producerSid,
+            from: prevTier,
+            to: prevTier,
+            reason: "reasoning-bump",
+            attempts: state.totalAttempts,
+          });
+        }
       } finally {
         // Per-attempt cleanup (drop producer session tracking + state).
         // Always runs — even on timeout, abort, or throw from
@@ -529,6 +618,26 @@ export const executeDelegate = async (
         // cannot leak tracking entries forever.
         // SDD fix-session-ghost-tui-jump: conditionally abort based on success.
         await cleanupProducerSession(ctx, producerSid, !attemptSucceeded);
+      }
+    }
+    } finally {
+      // WU-6: baseline restore sweep — restore all patched agent defs to their
+      // pre-patch baselines. Runs on every exit path (accept, give_up, throw,
+      // safety-net, abort return). Best-effort: individual failures are logged
+      // and do not propagate.
+      for (const [tierName, baseline] of tierBaselines) {
+        const def = ctx.opencodeConfig?.agent?.[tierName];
+        if (def) {
+          try {
+            restoreAgentBaseline(def, baseline);
+          } catch (e) {
+            log.warn({
+              event: "delegate.baseline_restore_failed",
+              tier: tierName,
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
+        }
       }
     }
   } catch (err) {
