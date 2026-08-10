@@ -266,6 +266,7 @@ export const validateEnforcementEscalate = (enf: Record<string, unknown>): void 
   if (!isPlainObject(enf.escalate)) return;
   const escalate = enf.escalate;
   validateEscalateCostCeiling(escalate);
+  validateReasoningEscalation(escalate);
   if (escalate.ladder !== undefined) {
     if (
       !Array.isArray(escalate.ladder) ||
@@ -311,6 +312,29 @@ export const validateEscalateCostCeiling = (escalate: Record<string, unknown>): 
   if (costCeiling.multiple !== undefined) {
     if (typeof costCeiling.multiple !== "number" || costCeiling.multiple <= 0) {
       throw new Error("tiers.json: enforcement.escalate.costCeiling.multiple must be a number > 0");
+    }
+  }
+};
+
+export const validateReasoningEscalation = (escalate: Record<string, unknown>): void => {
+  if (escalate.reasoningEscalation === undefined) return;
+  // Permissive skip: a non-object reasoningEscalation is ignored so older configs survive.
+  if (!isPlainObject(escalate.reasoningEscalation)) return;
+  const re = escalate.reasoningEscalation;
+  if (re.enabled !== undefined && typeof re.enabled !== "boolean") {
+    throw new Error(
+      "tiers.json: enforcement.escalate.reasoningEscalation.enabled must be a boolean",
+    );
+  }
+  if (re.maxLevelBumpsPerTier !== undefined) {
+    if (
+      typeof re.maxLevelBumpsPerTier !== "number" ||
+      !Number.isInteger(re.maxLevelBumpsPerTier) ||
+      re.maxLevelBumpsPerTier < 0
+    ) {
+      throw new Error(
+        "tiers.json: enforcement.escalate.reasoningEscalation.maxLevelBumpsPerTier must be an integer >= 0",
+      );
     }
   }
 };

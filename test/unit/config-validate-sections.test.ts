@@ -36,6 +36,7 @@ import {
   validateModes,
   validatePreset,
   validatePresets,
+  validateReasoningEscalation,
   validateReasoningPolicy,
   validateReasoningPolicyMode,
   validateRootFields,
@@ -369,6 +370,53 @@ describe("validateEscalateCostCeiling", () => {
   });
   it("accepts positive numeric multiple", () => {
     expect(() => validateEscalateCostCeiling({ costCeiling: { multiple: 4 } })).not.toThrow();
+  });
+});
+
+describe("validateReasoningEscalation", () => {
+  it("skips when reasoningEscalation is absent or non-object", () => {
+    expect(() => validateReasoningEscalation({})).not.toThrow();
+    expect(() => validateReasoningEscalation({ reasoningEscalation: "x" })).not.toThrow();
+  });
+  it("accepts a valid block with enabled and maxLevelBumpsPerTier", () => {
+    expect(() =>
+      validateReasoningEscalation({
+        reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateReasoningEscalation({
+        reasoningEscalation: { enabled: false, maxLevelBumpsPerTier: 0 },
+      }),
+    ).not.toThrow();
+  });
+  it("rejects enabled that is not a boolean", () => {
+    expect(() =>
+      validateReasoningEscalation({ reasoningEscalation: { enabled: "yes" } }),
+    ).toThrow(/reasoningEscalation\.enabled must be a boolean/);
+    expect(() =>
+      validateReasoningEscalation({ reasoningEscalation: { enabled: 1 } }),
+    ).toThrow(/reasoningEscalation\.enabled must be a boolean/);
+    expect(() =>
+      validateReasoningEscalation({ reasoningEscalation: { enabled: null } }),
+    ).toThrow(/reasoningEscalation\.enabled must be a boolean/);
+  });
+  it("rejects maxLevelBumpsPerTier that is negative, fractional, or non-numeric", () => {
+    expect(() =>
+      validateReasoningEscalation({
+        reasoningEscalation: { maxLevelBumpsPerTier: -1 },
+      }),
+    ).toThrow(/maxLevelBumpsPerTier must be an integer >= 0/);
+    expect(() =>
+      validateReasoningEscalation({
+        reasoningEscalation: { maxLevelBumpsPerTier: 1.5 },
+      }),
+    ).toThrow(/maxLevelBumpsPerTier must be an integer >= 0/);
+    expect(() =>
+      validateReasoningEscalation({
+        reasoningEscalation: { maxLevelBumpsPerTier: "2" },
+      }),
+    ).toThrow(/maxLevelBumpsPerTier must be an integer >= 0/);
   });
 });
 

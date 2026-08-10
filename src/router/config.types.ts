@@ -89,6 +89,7 @@ export interface EnforcementConfig {
     maxAttemptsPerTier?: number;
     maxTotalAttempts?: number;
     costCeiling?: { base?: string; multiple?: number };
+    reasoningEscalation?: ReasoningEscalationConfig;
   };
   proportional?: { trivialBypass?: boolean; trivialClassifier?: string };
 }
@@ -168,6 +169,18 @@ export interface AdaptivePolicyConfig {
   tierDefaults?: Record<string, import("../reasoning/capability.js").ReasoningLevel>;
   /** When true, emit a debug log for every adaptive decision (level + reason). */
   surfaceDecision?: boolean;
+}
+
+/**
+ * Reasoning escalation config — controls level-bump behaviour within a tier
+ * before falling back to the next tier. Feature is OFF by default (enabled
+ * must be explicitly true to activate).
+ */
+export interface ReasoningEscalationConfig {
+  /** Enable level-bump within the same tier on verification failure. */
+  enabled?: boolean;
+  /** Maximum number of level bumps permitted per tier before escalating. Default: 2. */
+  maxLevelBumpsPerTier?: number;
 }
 
 /**
