@@ -260,6 +260,14 @@ describe("nextTierAfter", () => {
     const single = makePolicy({ ladder: ["medium"] });
     expect(nextTierAfter("medium", single)).toBeNull();
   });
+
+  it("returns null when next index exists but value is undefined (sparse ladder)", () => {
+    // Sparse array with a hole at index 1: ["fast", undefined, "heavy"]
+    // This exercises the ?? null branch when ladder[ci+1] is undefined.
+    const sparseLadder: (string | undefined)[] = ["fast", undefined, "heavy"];
+    const p = makePolicy({ ladder: sparseLadder });
+    expect(nextTierAfter("fast", p)).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -543,6 +551,19 @@ describe("advance", () => {
   it("give_up => state unchanged (terminal)", () => {
     const s = makeState({ totalAttempts: 4, currentTier: "heavy" });
     const s2 = advance(s, { action: "give_up", reason: "done" });
+    expect(s2).toEqual(s);
+  });
+
+  it("escalate without tier => returns state unchanged (defensive no-op)", () => {
+    const s = makeState({
+      currentTier: "fast",
+      attemptsThisTier: 1,
+      escalations: 0,
+      levelIndex: 2,
+      bumpsThisTier: 1,
+      reasoningLadderLen: 3,
+    });
+    const s2 = advance(s, { action: "escalate" } as any);
     expect(s2).toEqual(s);
   });
 
@@ -1265,6 +1286,14 @@ describe("canBumpReasoning", () => {
     const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
     expect(canBumpReasoning(s, p, verdict)).toBe(false);
   });
+
+  // T-8: omitted maxLevelBumpsPerTier defaults to 2
+  it("T-8: returns true when enabled, tierHasLadder, bumpsLeft>0, cause=verification_fail, maxLevelBumpsPerTier omitted (default cap=2)", () => {
+    const p = makePolicy({ reasoningEscalation: { enabled: true } });
+    const s = makeState({ reasoningLadderLen: 3, levelIndex: 0, bumpsThisTier: 0 });
+    const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
+    expect(canBumpReasoning(s, p, verdict)).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1317,6 +1346,18 @@ describe("nextAction — bump branch (WU-4)", () => {
     const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
     const a = nextAction(s, verdict, p);
     expect(a.action).toBe("escalate");
+  });
+
+  // T-4 variant: bumps exhausted at non-top-rung with next tier available
+  it("T-4 variant: escalates to next tier when explicit bump cap exhausted but rungs remain and higher tier exists", () => {
+    const p = bumpPolicy({ reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 1 } });
+    // levelIndex 0 with reasoningLadderLen 3 => rungs remain (0+1 < 3)
+    // bumpsThisTier 1 === maxLevelBumpsPerTier 1 => bumps exhausted
+    const s = ladderState({ levelIndex: 0, bumpsThisTier: 1, attemptsThisTier: 1 });
+    const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
+    const a = nextAction(s, verdict, p);
+    expect(a.action).toBe("escalate");
+    expect(a.tier).toBe("medium");
   });
 
   // T-2: retryable error — enters else-wrap branch 6 (retry)
