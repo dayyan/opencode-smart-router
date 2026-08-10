@@ -56,6 +56,7 @@ See "### Audit cycle 4" below for the reconciliation notes.
 | 033  | Restore 1:1 TypeScript Parity in the ReScript Guard Engine | P1 | M | LOW–MED | — | DONE |
 | 034  | Add reasoning-level escalation on retry (bump before tier fallback) | P2 | M | MED | — | DONE (SDD cycle, obs #4121/#4123/#4124/#4134/#4135; verify-report PASS; branch `advisor/034-reasoning-bump-escalation`) |
 | 035  | Add unit tests for config-loader pure functions | P1 | S | LOW | — | DONE (24/24 tests pass; typecheck + lint green; branch `advisor/035-config-loader-tests` @ `c633d1d`) |
+| 036  | Cover escalation ladder boundary branches | P1 | S | LOW | — | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale).
 
@@ -123,6 +124,7 @@ actual test suite **rejected three** as already-covered and confirmed one.
 
 ## Dependency notes
 
+- **036 is independent.** It modifies only `test/unit/ladder.test.ts` and protects the existing 95% coverage release gate; it must not alter the production ladder or coverage configuration.
 - **001 and 004 both edit `src/plugin/delegate.ts`** — execute them sequentially on the same branch, or merge one before starting the other, to avoid merge conflicts. Recommended order: 001 first (it adds the `cleanupProducerSession` helper), then 004 (independent change in a different catch block).
 - **002 is independent** but benefits from landing after 001 so the delegate helper signature is stable when the runtime tests mock it.
 - **003, 005, 006 are fully independent** — any order, any branch.
