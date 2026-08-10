@@ -165,13 +165,47 @@ export const nextAction = (
     return { action: "give_up", reason: "cost ceiling exceeded" };
   }
 
-  // (6) retry within tier
-  if (state.attemptsThisTier < policy.maxAttemptsPerTier) {
-    return {
-      action: "retry",
-      tier: state.currentTier,
-      forcingMessage: buildLadderForcingMessage(verdict?.reasons ?? []),
-    };
+  // (5.5) level bump — verification_fail ladder tiers escalate within tier
+  // before retrying or escalating to the next tier.
+  const bumpEnabled = canBumpReasoning(state, policy, verdict);
+  if (bumpEnabled) {
+    const re = policy.reasoningEscalation;
+    const bumpsLeft = (re?.maxLevelBumpsPerTier ?? 2) - state.bumpsThisTier;
+    const rungsRemain = state.levelIndex + 1 < state.reasoningLadderLen;
+    if (rungsRemain && bumpsLeft > 0) {
+      return {
+        action: "bump",
+        tier: state.currentTier,
+        forcingMessage: buildLadderForcingMessage(verdict?.reasons ?? []),
+      };
+    }
+    // Bumps exhausted: escalate within tier instead of retry.
+    // Only escalates here when bumpsLeft <= 0 at a non-top-rung level
+    // (top-rung case falls through to branch 7 give_up or tier-escalate below).
+    if (!rungsRemain || bumpsLeft <= 0) {
+      const next = nextTierAfter(state.currentTier, policy);
+      if (next != null) {
+        return {
+          action: "escalate",
+          tier: next,
+          forcingMessage: buildLadderForcingMessage(verdict?.reasons ?? []),
+        };
+      }
+      return {
+        action: "give_up",
+        reason: "no higher tier (already at top of ladder)",
+      };
+    }
+  } else {
+    // (6) retry within tier — non-bump cases only (retryable, non-ladder,
+    // feature-off, omitted cause) enter this branch byte-for-byte.
+    if (state.attemptsThisTier < policy.maxAttemptsPerTier) {
+      return {
+        action: "retry",
+        tier: state.currentTier,
+        forcingMessage: buildLadderForcingMessage(verdict?.reasons ?? []),
+      };
+    }
   }
 
   // (7) escalate or give_up
@@ -193,6 +227,16 @@ export const advance = (state: LadderState, action: LadderAction): LadderState =
   if (action.action === "retry") {
     return { ...state, attemptsThisTier: state.attemptsThisTier + 1 };
   }
+  if (action.action === "bump") {
+    // Bump advances the reasoning level within the current tier.
+    // Does NOT increment attemptsThisTier — that counts produce attempts,
+    // not internal reasoning-level steps.
+    return {
+      ...state,
+      levelIndex: state.levelIndex + 1,
+      bumpsThisTier: state.bumpsThisTier + 1,
+    };
+  }
   if (action.action === "escalate") {
     if (!action.tier) return state; // defensive — escalate always carries tier
     return {
@@ -200,6 +244,9 @@ export const advance = (state: LadderState, action: LadderAction): LadderState =
       currentTier: action.tier,
       attemptsThisTier: 0,
       escalations: state.escalations + 1,
+      levelIndex: 0,
+      bumpsThisTier: 0,
+      reasoningLadderLen: 0,
     };
   }
   // accept / give_up — terminal, return unchanged

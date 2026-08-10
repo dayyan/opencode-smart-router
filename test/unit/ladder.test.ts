@@ -560,6 +560,49 @@ describe("advance", () => {
     expect(s.currentTier).toBe(orig.currentTier);
     expect(s.escalations).toBe(orig.escalations);
   });
+
+  // WU-4: bump — increments levelIndex and bumpsThisTier, NOT attemptsThisTier
+  it("bump => increments levelIndex and bumpsThisTier (NOT attemptsThisTier)", () => {
+    const s = makeState({
+      currentTier: "medium",
+      levelIndex: 1,
+      bumpsThisTier: 0,
+      attemptsThisTier: 0,
+      reasoningLadderLen: 5,
+    });
+    const s2 = advance(s, { action: "bump", tier: "medium" });
+    expect(s2.levelIndex).toBe(2);
+    expect(s2.bumpsThisTier).toBe(1);
+    expect(s2.attemptsThisTier).toBe(0); // unchanged
+    expect(s2.currentTier).toBe("medium"); // unchanged
+  });
+
+  it("bump does NOT mutate input state", () => {
+    const s = makeState({ levelIndex: 1, bumpsThisTier: 0 });
+    const orig = { ...s };
+    advance(s, { action: "bump", tier: "medium" });
+    expect(s.levelIndex).toBe(orig.levelIndex);
+    expect(s.bumpsThisTier).toBe(orig.bumpsThisTier);
+  });
+
+  // WU-4: escalate — also resets ladder state fields
+  it("escalate => resets levelIndex, bumpsThisTier, reasoningLadderLen", () => {
+    const s = makeState({
+      currentTier: "fast",
+      levelIndex: 2,
+      bumpsThisTier: 1,
+      reasoningLadderLen: 5,
+      attemptsThisTier: 1,
+      escalations: 0,
+    });
+    const s2 = advance(s, { action: "escalate", tier: "medium" });
+    expect(s2.currentTier).toBe("medium");
+    expect(s2.attemptsThisTier).toBe(0);
+    expect(s2.escalations).toBe(1);
+    expect(s2.levelIndex).toBe(0); // reset
+    expect(s2.bumpsThisTier).toBe(0); // reset
+    expect(s2.reasoningLadderLen).toBe(0); // reset
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -862,6 +905,113 @@ describe("property-based: termination", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Property-based: bump invariants with feature ON + ladder tiers (WU-4)
+//
+// Distinct seed range (1001-1060) — separate from the 60-seed feature-off loop.
+// Invariants verified per seed:
+//   - levelIndex is monotonic non-decreasing within a tier (resets on tier change)
+//   - bumpsThisTier <= maxLevelBumpsPerTier
+//   - never returns "retry" when bumps ARE available on verification_fail ladder tier
+//   - loop terminates within safetyMax cycles
+// ---------------------------------------------------------------------------
+
+describe("property-based: bump invariants with feature ON (WU-4)", () => {
+  for (let seed = 1001; seed <= 1060; seed++) {
+    it(`seed=${seed}: levelIndex monotonic, bumpsThisTier <= cap, no retry when bumps available`, () => {
+      const rng = mulberry32(seed);
+
+      // Random but valid policy with feature ON
+      const tierCount = 1 + Math.floor(rng() * 3); // 1..3 tiers
+      const allTiers = ["fast", "medium", "heavy", "ultra"];
+      const ladder = allTiers.slice(0, tierCount);
+      const maxAttemptsPerTier = Math.floor(rng() * 4); // 0..3
+      const maxTotalAttempts = 1 + Math.floor(rng() * 6); // 1..6
+      const maxLevelBumpsPerTier = 1 + Math.floor(rng() * 4); // 1..4 bumps per tier
+      const reasoningLadderLen = 2 + Math.floor(rng() * 4); // 2..5 rungs
+
+      const p: EscalatePolicy = {
+        ladder,
+        floorTier: null,
+        maxAttemptsPerTier,
+        maxTotalAttempts,
+        costMultiple: null,
+        reasoningEscalation: { enabled: true, maxLevelBumpsPerTier },
+      };
+
+      const producerTier = ladder[0]!;
+      let state = newLadderState(producerTier, p);
+      // Simulate enterTier: set reasoningLadderLen for the starting tier
+      state = { ...state, reasoningLadderLen };
+
+      let cycles = 0;
+      let done = false;
+      let prevTier = state.currentTier;
+      let prevLevelIndex = state.levelIndex; // reset on tier change
+      let prevBumpsThisTier = state.bumpsThisTier;
+      const safetyMax = maxTotalAttempts * 3; // generous bound for bump cycles
+
+      while (!done && cycles < safetyMax) {
+        cycles++;
+
+        // Tier change resets monotonic counters
+        if (state.currentTier !== prevTier) {
+          prevTier = state.currentTier;
+          prevLevelIndex = 0; // reset on new tier
+        }
+
+        // Monotonic: levelIndex within a tier never decreases
+        expect(state.levelIndex).toBeGreaterThanOrEqual(prevLevelIndex);
+        prevLevelIndex = state.levelIndex;
+
+        // Bumps never exceed cap
+        expect(state.bumpsThisTier).toBeLessThanOrEqual(maxLevelBumpsPerTier);
+        prevBumpsThisTier = state.bumpsThisTier;
+
+        // Random cost (not relevant for bump logic but part of the loop)
+        const cost = Math.floor(rng() * 11);
+        state = recordAttempt(state, cost);
+
+        // Random verdict: 30% pass, 40% verification_fail, 30% retryable_error
+        const roll = rng();
+        const pass = roll < 0.3;
+        const cause: LadderVerdict["cause"] =
+          roll < 0.3 ? undefined : roll < 0.7 ? "verification_fail" : "retryable_error";
+        const verdict: LadderVerdict = {
+          pass,
+          cause: cause ?? undefined,
+          reasons: pass ? [] : ["failure reason"],
+        };
+
+        const action = nextAction(state, verdict, p);
+
+        // Critical invariant: when bumps ARE available on verification_fail ladder tier
+        // (canBumpReasoning returns true), nextAction must bump OR escalate, NEVER retry.
+        // When bumps are exhausted, escalate is correct — retry would be wrong.
+        const bumpsLeft = maxLevelBumpsPerTier - state.bumpsThisTier;
+        const rungsRemain = state.levelIndex + 1 < state.reasoningLadderLen;
+        const bumpsAvailable =
+          bumpsLeft > 0 && rungsRemain && verdict.cause === "verification_fail";
+        if (
+          bumpsAvailable &&
+          state.reasoningLadderLen > 0 &&
+          p.reasoningEscalation?.enabled
+        ) {
+          expect(action.action).not.toBe("retry");
+        }
+
+        if (action.action === "accept" || action.action === "give_up") {
+          done = true;
+        } else {
+          state = advance(state, action);
+        }
+      }
+
+      expect(cycles).toBeLessThan(safetyMax); // loop must terminate
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // AbortSignal — post-abort the ladder must give_up, NEVER retry/escalate.
 //
 // Contract (PR 1 of fix-delegate-cancellation): once the caller's
@@ -1118,5 +1268,92 @@ describe("canBumpReasoning", () => {
     const s = makeState({ reasoningLadderLen: 3, levelIndex: 0, bumpsThisTier: 0 });
     const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
     expect(canBumpReasoning(s, p, verdict)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// nextAction — bump branch (WU-4)
+//
+// T-1: feature ON + ladder + bumpsLeft + verification_fail => bump
+// T-2: feature ON + ladder + bumpsLeft + retryable_error    => retry (else-wrap)
+// T-3: feature ON + ladder + top rung (no rungsRemain)      => escalate
+// T-4: feature ON + ladder + bumps exhausted                 => escalate
+// T-5: feature OFF (enabled=false)                           => existing path
+// T-6: cause omitted (no cause field)                       => no bump
+// ---------------------------------------------------------------------------
+
+describe("nextAction — bump branch (WU-4)", () => {
+  const ladder = ["fast", "medium", "heavy"];
+  const bumpPolicy = (overrides: Partial<EscalatePolicy> = {}) =>
+    makePolicy({ ladder, reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 }, ...overrides });
+  const ladderState = (overrides: Partial<LadderState> = {}) =>
+    makeState({ reasoningLadderLen: 3, levelIndex: 0, bumpsThisTier: 0, ...overrides });
+
+  // T-1: bump
+  it("T-1: returns bump when feature ON + tierHasLadder + bumpsLeft + verification_fail", () => {
+    const p = bumpPolicy();
+    const s = ladderState({ levelIndex: 0, bumpsThisTier: 0, attemptsThisTier: 0 });
+    const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
+    const a = nextAction(s, verdict, p);
+    expect(a.action).toBe("bump");
+    expect(a.tier).toBe("fast");
+  });
+
+  // T-3: top-rung escalate (no bump — no rungs remain)
+  it("T-3: escalates when at top rung (levelIndex+1 >= reasoningLadderLen)", () => {
+    const p = bumpPolicy();
+    // levelIndex 2 with ladderLen 3 = top rung (index 2 is last of 3 levels: 0,1,2)
+    const s = ladderState({ levelIndex: 2, bumpsThisTier: 0, attemptsThisTier: 1 });
+    const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
+    const a = nextAction(s, verdict, p);
+    expect(a.action).toBe("escalate");
+    expect(a.tier).toBe("medium");
+  });
+
+  // T-4: cap-hit escalate (no bump — bumps exhausted)
+  it("T-4: escalates when bumpsThisTier >= maxLevelBumpsPerTier", () => {
+    const p = bumpPolicy({ reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 } });
+    const s = ladderState({ levelIndex: 0, bumpsThisTier: 2, attemptsThisTier: 1 });
+    const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
+    const a = nextAction(s, verdict, p);
+    expect(a.action).toBe("escalate");
+  });
+
+  // T-2: retryable error — enters else-wrap branch 6 (retry)
+  it("T-2: returns retry (not bump) when cause=retryable_error", () => {
+    const p = bumpPolicy({ maxAttemptsPerTier: 2 });
+    const s = ladderState({ levelIndex: 0, bumpsThisTier: 0, attemptsThisTier: 0 });
+    const verdict: LadderVerdict = { pass: false, cause: "retryable_error" };
+    const a = nextAction(s, verdict, p);
+    expect(a.action).toBe("retry"); // else-wrap to branch 6
+    expect(a.tier).toBe("fast");
+  });
+
+  // T-5: feature off — existing path (retry)
+  it("T-5: returns retry when feature is OFF (enabled=false)", () => {
+    const p = makePolicy({ ladder, maxAttemptsPerTier: 2, reasoningEscalation: { enabled: false } });
+    const s = ladderState({ attemptsThisTier: 0 });
+    const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
+    const a = nextAction(s, verdict, p);
+    expect(a.action).toBe("retry"); // existing path, no bump
+  });
+
+  // T-6: omitted cause — no bump (enters else-wrap → retry or escalate)
+  it("T-6: omitted cause => no bump (cause absent, not verification_fail)", () => {
+    const p = bumpPolicy({ maxAttemptsPerTier: 2 });
+    const s = ladderState({ levelIndex: 0, bumpsThisTier: 0, attemptsThisTier: 0 });
+    const verdict: LadderVerdict = { pass: false }; // no cause field
+    const a = nextAction(s, verdict, p);
+    expect(a.action).toBe("retry"); // else-wrap → branch 6
+  });
+
+  // R-1 else-wrap invariant: verification_fail ladder tier MUST NOT enter branch 6
+  it("R-1: verification_fail ladder tier skips branch 6 (retry) and escalates", () => {
+    const p = bumpPolicy({ maxAttemptsPerTier: 3 }); // retry available but...
+    const s = ladderState({ levelIndex: 0, bumpsThisTier: 0, attemptsThisTier: 1 });
+    const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
+    const a = nextAction(s, verdict, p);
+    // bump available (rungsRemain + bumpsLeft) → returns bump, not retry
+    expect(a.action).toBe("bump");
   });
 });
