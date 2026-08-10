@@ -32,6 +32,79 @@ const DISCRETE_RANK: Record<ReasoningLevel, number> = {
 };
 
 /**
+ * Resolve a discrete capability's ladder index for a given reasoning level.
+ * Duplicates the discrete rank formula from `translateLevel` so the index
+ * is available independently of patch emission.
+ */
+export const resolveLevelIndex = (
+  cap: ReasoningCapability,
+  level: ReasoningLevel,
+): number => {
+  if (cap.kind !== "discrete") return 0;
+  const target = DISCRETE_RANK[level];
+  const rawIdx = Math.round((target / 3) * (cap.levels.length - 1));
+  return Math.min(rawIdx, cap.levels.length - 1);
+};
+
+/**
+ * Returns the ladder index for a named variant within a capability's levels.
+ * For binary capabilities with no explicit levels array, returns 0 when
+ * `variant` is undefined/absent (baseline) and 1 for elevated.
+ * Returns `undefined` if the variant is not found in the ladder.
+ */
+export const levelIndexForVariant = (cap: ReasoningCapability, variant?: string): number | undefined => {
+  if (cap.kind === "discrete" && cap.levels) {
+    const idx = cap.levels.indexOf(variant ?? "");
+    return idx >= 0 ? idx : undefined;
+  }
+  if (cap.kind === "binary") {
+    return variant == null ? 0 : 1;
+  }
+  return 0;
+};
+
+/**
+ * Returns the number of rungs in the capability ladder. Discrete caps return
+ * `levels.length`; binary returns 2; none/budgeted return 0.
+ */
+export const capabilityLadderLength = (cap: ReasoningCapability): number => {
+  if (cap.kind === "discrete" && cap.levels) return cap.levels.length;
+  if (cap.kind === "binary") return 2;
+  return 0;
+};
+
+/**
+ * Translate a capability at a given ladder index (rather than a reasoning
+ * level). Routes by `cap.field`:
+ *
+ *   - `variant`               → `{variant: <levels[idx]>}`  (discrete)
+ *   - `reasoning.effort`      → `{options:{reasoning_effort:<levels[idx]>}}`
+ *   - `undefined` (none/budgeted) → `null`
+ *
+ * Binary: idx >= 1 → elevated variant; idx === 0 → baseline or null.
+ * Clamps `idx` to `levels.length - 1` for discrete.
+ */
+export const translateAtIndex = (
+  cap: ReasoningCapability,
+  idx: number,
+): ResolvedReasoning => {
+  if (cap.kind === "discrete" && cap.levels) {
+    const clampedIdx = Math.min(idx, cap.levels.length - 1);
+    const picked = cap.levels[clampedIdx];
+    if (picked === undefined) return null;
+    return cap.field === "variant"
+      ? { variant: picked }
+      : { options: { reasoning_effort: picked } };
+  }
+  if (cap.kind === "binary") {
+    if (idx >= 1) return { variant: cap.elevated };
+    return cap.baseline ? { variant: cap.baseline } : null;
+  }
+  // none / budgeted — no ladder, always null
+  return null;
+};
+
+/**
  * Translate a normalized reasoning level into the provider-specific patch for
  * this capability. Routes output by `cap.field`:
  *
