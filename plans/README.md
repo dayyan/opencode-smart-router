@@ -58,6 +58,42 @@ See "### Audit cycle 4" below for the reconciliation notes.
 | 035  | Add unit tests for config-loader pure functions | P1 | S | LOW | — | DONE (24/24 tests pass; typecheck + lint green; branch `advisor/035-config-loader-tests` @ `c633d1d`) |
 | 036  | Cover escalation ladder boundary branches | P1 | S | LOW | — | DONE |
 
+### Audit cycle 6 — new plans (2026-08-15, commit `c740f11`)
+
+Deep audit (8 category passes, subagent-vetted). Four findings selected;
+the CI/pre-commit finding was **excluded by the user** this cycle — see
+"Findings considered and rejected → Audit cycle 6" so a future cycle knows
+it is unplanned, not rejected on merit.
+
+| Plan | Title | Priority | Effort | Risk | Depends on | Status |
+|------|-------|----------|--------|------|------------|--------|
+| 037  | Frame the grader prompt against producer-borne prompt injection | P1 | S | LOW | — | DONE (branch `advisor/037-foreground` @ `5199469`; worktree `/tmp/opencode/smart-router-037fg`) |
+| 038  | Make the delegate path honor per-tier reasoning ownership | P1 | S–M | LOW | — | DONE (branch `advisor/038-foreground` @ `9e795bb`; worktree `/tmp/opencode/smart-router-038fg`) |
+| 039  | Make escalation-ladder attempt semantics truthful | P1 | S | LOW | 038 (same-file sequencing) | DONE (branch `advisor/039-foreground` stacked on 038: `7b55214` + `b174518`; worktree `/tmp/opencode/smart-router-039fg`) |
+| 040  | Document the reasoning-bump escalation ladder (1.9.0 feature) | P2 | S | LOW | 039 (wording source) | DONE (branch `advisor/040-foreground` @ `cf5b79a`; worktree `/tmp/opencode/smart-router-040fg`) |
+
+**Dependency / ordering:**
+
+- **038 and 039 BOTH edit `src/plugin/delegate.ts`** — execute sequentially
+  on one branch (038 first: ownership acquire/skip/release around the patch
+  block; then 039: the `enterTier` gate tighten is file-adjacent).
+- **037 is file-disjoint** (src/verify/checker.ts + its tests) — any order.
+- **040 lands after 039** — it quotes 039's doc-comment wording for the
+  attempt-arithmetic fix and must not document semantics 039 hasn't pinned.
+- Recommended order: **037 ∥ 038 → 039 → 040**.
+
+**Verifier note (cycle 6):** the done criteria as written for 037–040 use
+the literal phrasing `pnpm run typecheck exits 0` / `pnpm test exits 0`.
+At the `c740f11` baseline, BOTH already fail for reasons unrelated to
+these plans: a TS2322 in `test/unit/ladder.test.ts:268` (sparse-ladder
+fixture typed `(string \| undefined)[]` vs `policy.ladder: string[]`),
+and 3 integration tests in `packaging.test.ts`, `ladder-wiring.test.ts`,
+`modeA-e2e.test.ts` that need `dist/` build artifacts or live runtime.
+Executors verified via `git stash` baseline runs that none of the
+cycle-6 plans introduced these failures. Future plans at this commit
+should phrase done criteria as "no NEW failures versus baseline" rather
+than "exits 0".
+
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale).
 
 > **Plan 034** (added 2026-08-09 against `7064e0d`): single feature plan via the
@@ -309,3 +345,32 @@ spike, not a bug), incomplete secret scrubbing (no proven exfiltration sink).
   (mechanical `Js.Nullable.t` → `Nullable.t` rename without touching
   logic) is a candidate for a SEPARATE hygiene change, not a re-plan of
   these existing ones.
+
+### Audit cycle 6 (2026-08-15, commit `c740f11`)
+
+- **No CI / no pre-commit hooks** (cycle-6 finding #5): EXCLUDED BY THE
+  USER from this cycle's plans — not rejected on merit. Re-raise in a
+  future cycle; Plan 013 is DONE but the repo currently has no
+  `.github/workflows/` and no hook tooling.
+- **Direction findings deferred (not planned)**: cost/health/pass-rate read
+  surface (the read path that makes the README's 83-92% cost claim
+  verifiable by users — best feature ROI in the cycle); graduating the
+  `delegate` tool from `experimental` (contradicts ADR 0002's
+  "authoritative end-state"); down-tier-on-PASS (pairs with Plan 015);
+  `escalate/` seams spike before Plan 015.
+- **`npx opencode-smart-router install` fails because bin is `osr`**:
+  FALSE ALARM — npm exec runs the package's sole bin regardless of its
+  name.
+- **PERF micro-opts** (tierRank `indexOf` → Map, combined error-classify
+  regex, schema-shape memoization, keyword pre-normalization): noise-level
+  on 5-element arrays / cold paths.
+- **`utils/observability.ts` fan-in (6 importers)**: that is what a
+  logging module looks like.
+- **router ↔ plugin import cycle**: real but MED effort, LOW payoff;
+  deferred until module-init order bugs appear.
+- **CLI/commands branch-coverage gaps (73%/79%)**: the coverage-gate
+  mechanism is Plan 030 (TODO); ride along with 030 when it lands.
+- **Peer dep `@opencode-ai/plugin >=1.0.0` lower bound untested**: needs
+  a compat-matrix check against the 1.0.0 exports.
+- **`TIERS_OUTPUT_PATH` absolute-path escape + `buildSpecifier`
+  unvalidated input**: S-effort defensive hardening, LOW real-world risk.
