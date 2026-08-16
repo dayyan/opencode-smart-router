@@ -3440,3 +3440,113 @@ describe("executeDelegate — per-tier reasoning ownership (Plan 038)", () => {
     debugSpy.mockRestore();
   });
 });
+
+// Plan 039: enterTier used to gate on `tierCfg.reasoning` (the OBJECT) — so
+// `reasoning: {}` with an absent `effort` was truthy and overrode the
+// `variant` fallback with `undefined`. That silently seeded the ladder at
+// index 0 regardless of any explicit `variant`. After 039, the gate is
+// `tierCfg.reasoning?.effort != null` so an empty reasoning block falls
+// back to `tierCfg.variant` like a reasoning-less tier would.
+
+describe("executeDelegate — reasoning.effort + empty reasoning block falls back to variant (Plan 039)", () => {
+  it("reasoning: {} on a discrete/reasoning.effort tier seeds from variant, not index 0", async () => {
+    // Tier "heavy" declares `reasoning: {}` (empty — no effort field) and
+    // `variant: "high"`. Capability ladder is [low, medium, high, xhigh],
+    // so the correct starting index is 2 (= "high"). Pre-039, this mis-
+    // seeded at index 0 ("low") because the truthy reasoning object short-
+    // circuited the variant fallback with undefined.
+    const cfg: RouterConfig = {
+      activePreset: "default",
+      defaultTier: "heavy",
+      presets: {
+        default: {
+          heavy: {
+            model: "openai/gpt-5.6-terra",
+            description: "heavy",
+            whenToUse: [],
+            costRatio: 1,
+            // Variant IS set; reasoning is intentionally an empty object.
+            variant: "high",
+            reasoning: {}, // empty block — must NOT override variant
+            capability: {
+              kind: "discrete",
+              field: "reasoning.effort",
+              levels: ["low", "medium", "high", "xhigh"],
+            },
+          },
+        },
+      },
+      rules: [],
+      enforcement: {
+        verify: { require: "always", graderTemperature: 0 },
+        escalate: {
+          ladder: ["heavy"],
+          maxAttemptsPerTier: 4,
+          maxTotalAttempts: 20,
+          costCeiling: { multiple: 100 },
+          reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 },
+        },
+      },
+    } as RouterConfig;
+
+    const agent: Record<string, Record<string, unknown>> = {
+      heavy: {
+        model: "openai/gpt-5.6-terra",
+        mode: "subagent",
+        options: { reasoning_effort: "high" }, // baseline matches variant
+      },
+    };
+
+    const recordedEfforts: unknown[] = [];
+
+    acceptMock.mockReset();
+    acceptMock
+      // First attempt: PASS so we observe the single starting effort.
+      .mockResolvedValueOnce({
+        accepted: true,
+        verdict: { pass: true, method: "deterministic", reasons: [] },
+        dodSource: "inferred",
+      })
+      // Default for any later call: deterministic FAIL.
+      .mockResolvedValue({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["default-fail"] },
+        dodSource: "inferred",
+      });
+
+    const { ctx } = makeCtx({
+      getConfigImpl: () => cfg,
+      refreshConfigImpl: () => cfg,
+      promptImpl: async (req: unknown) => {
+        const calledTier = (req as { body?: { agent?: string } })?.body?.agent;
+        if (calledTier) {
+          const opencfg = (ctx as unknown as Record<string, unknown>).opencodeConfig as {
+            agent?: Record<string, Record<string, unknown>>;
+          };
+          const liveDef = opencfg.agent?.[calledTier];
+          if (liveDef) {
+            recordedEfforts.push((liveDef.options as Record<string, unknown>)?.reasoning_effort);
+          }
+        }
+        return { data: { parts: [{ type: "text", text: "done" }] } };
+      },
+    });
+    (ctx as unknown as Record<string, unknown>).opencodeConfig = { agent };
+
+    const out = await executeDelegate(ctx, {
+      task: "empty reasoning block fallback",
+      tier: "heavy",
+    });
+
+    expect(out).toContain("[router ✓ accepted: deterministic]");
+
+    // CRITICAL: first attempt must use the variant-derived level "high".
+    // Pre-039, this would have been "low" because the empty `reasoning: {}`
+    // truthy-check overrode the `variant: "high"` fallback with undefined,
+    // collapsing the starting index to 0.
+    expect(recordedEfforts[0]).toBe("high");
+
+    // Baseline restored.
+    expect(agent.heavy.options).toEqual({ reasoning_effort: "high" });
+  });
+});

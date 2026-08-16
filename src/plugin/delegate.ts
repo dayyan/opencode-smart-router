@@ -192,8 +192,12 @@ export const executeDelegate = async (
       // For discrete/reasoning.effort tiers, the configured starting level comes
       // from tierCfg.reasoning.effort (the explicit effort setting). Fall back to
       // tierCfg.variant for backward compat when reasoning is not set.
+      // An empty reasoning block ({}) has no effort — fall back to variant (the
+      // object-truthy check used before 039 mis-seeded such tiers at index 0).
       const variant =
-        cap.kind === "discrete" && cap.field === "reasoning.effort" && tierCfg.reasoning
+        cap.kind === "discrete" &&
+        cap.field === "reasoning.effort" &&
+        tierCfg.reasoning?.effort != null
           ? tierCfg.reasoning.effort
           : tierCfg.variant;
       const levelIndex = levelIndexForVariant(cap, variant) ?? 0;
