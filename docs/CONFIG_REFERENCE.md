@@ -54,8 +54,10 @@ Top-level `tiers.json` fields. All blocks are optional and additive; omitting a 
 |---|---|---|---|
 | `floorTier` | `string \| null` | `null` | Pin the minimum starting tier; skips cheaper rungs. Must be string or `null`. |
 | `ladder` | `string[]` | `["fast","light","medium","focused","heavy"]` | Ordered list of tier names to escalate through. Must be an array of strings. |
-| `maxAttemptsPerTier` | `number` | `1` | Max attempts at each rung before advancing. Must be integer ≥ 0. |
+| `maxAttemptsPerTier` | `number` | `1` | Retries allowed within a tier after its reasoning bumps are exhausted. Worst-case produce attempts per tier = 1 + `maxLevelBumpsPerTier` + this value (every attempt also counts toward `maxTotalAttempts`, the hard global bound). Must be integer ≥ 0. |
 | `maxTotalAttempts` | `number` | `4` | Hard ceiling across all tiers and retries. Must be integer ≥ 1. |
+| `reasoningEscalation` | `object` | — | Reasoning-level escalation within a tier before tier fallback. See [ESCALATION.md](./ESCALATION.md). |
+| `reasoningEscalation.maxLevelBumpsPerTier` | `number` | `2` | Max reasoning-level bumps per tier (only when `reasoningEscalation.enabled` is true). Must be integer ≥ 0. |
 | `costCeiling.base` | `string` | `"firstAttemptCostUnits"` | Reference point for cost ceiling. `"firstAttemptCostUnits"` = cost of the first producing attempt. |
 | `costCeiling.multiple` | `number` | `4` | Ceiling = `base × multiple`. Must be > 0. Escalation halts when cumulative cost would exceed this. |
 
@@ -164,6 +166,7 @@ Evaluated by `resolveEnforcementMode` on every dispatch.
 | `escalate.ladder` must be an array of strings. |
 | `escalate.maxAttemptsPerTier` must be an integer ≥ 0. |
 | `escalate.maxTotalAttempts` must be an integer ≥ 1. |
+| `escalate.reasoningEscalation.maxLevelBumpsPerTier` must be an integer ≥ 0 when present. |
 | `escalate.floorTier` must be string or `null`. |
 | `perTier` values must each be `off \| advisory \| enforced`. |
 | `guard.budget` must be a number ≥ 1. |

@@ -25,11 +25,13 @@ Pure, provably terminating. Evaluated in order; first match wins.
 | 1 | `verdict.pass === true` | **ACCEPT** |
 | 2 | `totalAttempts >= maxTotalAttempts` | **GIVE_UP** ("max total attempts") |
 | 3 | `cumulativeCost > firstAttemptCost × costMultiple` | **GIVE_UP** ("cost ceiling exceeded") |
-| 4 | `attemptsThisTier < maxAttemptsPerTier` | **RETRY** same tier |
-| 5 | higher tier exists in ladder | **ESCALATE** |
-| 6 | — | **GIVE_UP** ("no higher tier") |
+| 4 | bump eligible (`reasoningEscalation.enabled`, tier has a reasoning ladder, bumps remaining, verdict cause = `verification_fail`) AND rungs remain above current level | **BUMP** reasoning level within the same tier (does not consume the retry budget) |
+| 5 | bump eligible but already at top rung | **ESCALATE** to next tier |
+| 6 | `attemptsThisTier < maxAttemptsPerTier` | **RETRY** same tier |
+| 7 | higher tier exists in ladder | **ESCALATE** |
+| 8 | — | **GIVE_UP** ("no higher tier") |
 
-Give-up checks (2, 3) precede retry/escalate, guaranteeing termination. ACCEPT is returned **only** when `pass === true`; a FAIL is never silently accepted.
+Give-up checks (2, 3) precede retry/escalate, guaranteeing termination. ACCEPT is returned **only** when `pass === true`; a FAIL is never silently accepted. The BUMP branch (row 4) only runs when `canBumpReasoning` returns true and the tier still has rungs above the current level; row 5 covers the bumps-exhausted fall-through.
 
 ## Honest give-up
 
@@ -49,8 +51,14 @@ Returns the scrubbed best producer text and scrubbed failure reasons. Never a fa
 | `maxAttemptsPerTier` | `1` |
 | `maxTotalAttempts` | `4` |
 | `costCeiling.multiple` | `4` |
+| `reasoningEscalation.enabled` | `false` |
+| `reasoningEscalation.maxLevelBumpsPerTier` | `2` |
 
 `floorTier` pins the minimum starting tier, skipping cheap rungs for predictably-hard tasks.
+
+`reasoningEscalation.enabled` enables the bump branch: on verification FAIL, the tier's reasoning level is raised before falling back to retries or tier escalation. `reasoningEscalation.maxLevelBumpsPerTier` caps how many reason-level bumps are allowed within one tier. Bumps do NOT count against `maxAttemptsPerTier` — that field counts retry attempts only, applied AFTER reasoning bumps are exhausted.
+
+Worst-case produce attempts per tier = 1 (initial) + `maxLevelBumpsPerTier` (bumps) + `maxAttemptsPerTier` (retries). Every attempt (bumps included) also counts toward `maxTotalAttempts`, which is the hard global bound.
 
 ## Cost ceiling worked example
 
@@ -77,7 +85,7 @@ See [ENFORCEMENT_PRESETS.md](./ENFORCEMENT_PRESETS.md) for per-mode configuratio
 
 ## Safety net
 
-An independent hard iteration cap derived from `ladder.length × maxAttemptsPerTier` sits beside the policy. Even a misconfigured policy cannot loop forever.
+An independent hard iteration cap derived from `ladder.length × maxAttemptsPerTier` sits beside the policy. Even a misconfigured policy cannot loop forever. Bump attempts are bounded by `maxTotalAttempts` (checked before the bump branch in `nextAction`), and the delegate loop's independent `safetyMax` cap still applies on top of that.
 
 ## Composition with provider failover
 

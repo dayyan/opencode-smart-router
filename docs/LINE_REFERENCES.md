@@ -33,7 +33,7 @@ Reference index for maintainers. All paths relative to the package root. Referen
 
 ## Layer 3 — quality-escalation ladder
 
-- **`src/escalate/ladder.ts`** — escalation loop: retry → fast → medium → heavy, bounded by attempt and cost ceilings; emits final `status: met | unmet`.
+- **`src/escalate/ladder.ts`** — escalation loop: retry → reasoning-level bump (within tier, when enabled) → escalate → fast → light → medium → focused → heavy, bounded by attempt and cost ceilings; emits final `status: met | unmet`.
 
 ## Telemetry
 
