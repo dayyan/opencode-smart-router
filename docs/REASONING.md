@@ -355,6 +355,8 @@ Task(subagent_type="medium")
 
 The reasoning store tracks one owner per tier (the sessionID currently holding the patch lock for that tier). A second same-tier dispatch observes `acquireTierOwner` returning `false` and **skips the patch** rather than overwriting an in-flight one. The skipped dispatch emits the debug event `reasoning.patch_skipped_concurrent` with the current owner, so the reason the patch was suppressed is observable without leaking into the chat. The after-hook releases ownership only when the current session is still the owner, so a foreign after-hook cannot drop another session's lock.
 
+The plugin-owned `delegate` tool participates in the same protocol: each invocation uses a `delegate:<producerSid>` owner key (deliberately distinct from any hook-path session id so a delegate and a concurrent hook patch, or two parallel delegates, on the same tier genuinely conflict). The delegate acquires before snapshotting + patching, skips the patch — emitting `reasoning.patch_skipped_concurrent` — when contended, and releases every acquired tier in its outer `finally` so the attempt runs unpatched rather than racing an in-flight baseline.
+
 ---
 
 ## Backward compatibility

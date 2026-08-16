@@ -218,6 +218,17 @@ export const executeDelegate = async (
     // Declared INSIDE executeDelegate (function-scope) so concurrent
     // invocations never share the map (R-5 from spec).
     const tierBaselines = new Map<string, Record<string, unknown>>();
+    // Per-invocation ownership key for the reasoning store. Derived from the
+    // FIRST producer session id so it is unique per delegate invocation and
+    // deliberately distinct from any hook-path session id — a delegate and a
+    // concurrent hook patch (or two parallel delegates) on the same tier must
+    // genuinely conflict, and the loser skips its patch.
+    let patchOwnerKey: string | null = null;
+    // Tiers this invocation successfully acquired and must release in the
+    // outer finally. Only tiers we PATCHED are restored (tierBaselines
+    // entries); ownership tracking is kept separate because a skipped patch
+    // must still never release someone else's lock.
+    const ownedTiers = new Set<string>();
 
     try {
       while (true) {
@@ -373,28 +384,41 @@ export const executeDelegate = async (
           const agentDef =
             state.reasoningLadderLen > 0 ? ctx.opencodeConfig?.agent?.[tier] : undefined;
           if (agentDef && state.reasoningLadderLen > 0) {
-            // Snapshot baseline before mutating — used by outer finally sweep.
-            if (!tierBaselines.has(tier)) {
-              tierBaselines.set(tier, { ...agentDef });
-            }
-            // Apply reasoning patch for the current level.
-            const tierCfg = activeCfg.presets?.[activeCfg.activePreset]?.[tier];
-            // Prefer explicit capability; fall back to inference from tier fields.
-            // The non-null `tierCfg` branch is always taken when agentDef is set
-            // because agentDef is sourced from opencodeConfig.agent[tier] which
-            // only exists when tierCfg was used to build it. The else branch is
-            // purely for TypeScript narrowing — tierCfg would be defined at this
-            // point but the type-system needs the explicit guard.
-            const cap: ReasoningCapability = (() => {
-              if (tierCfg) {
-                return tierCfg.capability ?? inferCapability(tierCfg);
+            patchOwnerKey ??= `delegate:${producerSid}`;
+            if (!ctx.reasoningStore.acquireTierOwner(tier, patchOwnerKey)) {
+              log.debug({
+                event: "reasoning.patch_skipped_concurrent",
+                tier,
+                owner: ctx.reasoningStore.getTierOwner(tier) ?? "unknown",
+              });
+              // Run this attempt unpatched — mutating a tier another owner
+              // holds would race their baseline. Do NOT snapshot, do NOT
+              // applyReasoningPatch.
+            } else {
+              ownedTiers.add(tier);
+              // Snapshot baseline before mutating — used by outer finally sweep.
+              if (!tierBaselines.has(tier)) {
+                tierBaselines.set(tier, { ...agentDef });
               }
-              const unsafe = activeCfg.presets?.[activeCfg.activePreset]?.[tier];
-              return unsafe ? inferCapability(unsafe) : { kind: "none" };
-            })();
-            const patch = translateAtIndex(cap, state.levelIndex);
-            if (patch) {
-              applyReasoningPatch(agentDef, patch);
+              // Apply reasoning patch for the current level.
+              const tierCfg = activeCfg.presets?.[activeCfg.activePreset]?.[tier];
+              // Prefer explicit capability; fall back to inference from tier fields.
+              // The non-null `tierCfg` branch is always taken when agentDef is set
+              // because agentDef is sourced from opencodeConfig.agent[tier] which
+              // only exists when tierCfg was used to build it. The else branch is
+              // purely for TypeScript narrowing — tierCfg would be defined at this
+              // point but the type-system needs the explicit guard.
+              const cap: ReasoningCapability = (() => {
+                if (tierCfg) {
+                  return tierCfg.capability ?? inferCapability(tierCfg);
+                }
+                const unsafe = activeCfg.presets?.[activeCfg.activePreset]?.[tier];
+                return unsafe ? inferCapability(unsafe) : { kind: "none" };
+              })();
+              const patch = translateAtIndex(cap, state.levelIndex);
+              if (patch) {
+                applyReasoningPatch(agentDef, patch);
+              }
             }
           }
 
@@ -627,6 +651,13 @@ export const executeDelegate = async (
         }
       }
     } finally {
+      // Release every tier we successfully acquired. The store API is
+      // owner-checked and returns false on a foreign release, so this is safe
+      // even in odd teardown orders. patchOwnerKey is non-null whenever
+      // ownedTiers is non-empty; the ?? "" is only for the type system.
+      for (const ownedTier of ownedTiers) {
+        ctx.reasoningStore.releaseTierOwner(ownedTier, patchOwnerKey ?? "");
+      }
       // WU-6: baseline restore sweep — restore all patched agent defs to their
       // pre-patch baselines. Runs on every exit path (accept, give_up, throw,
       // safety-net, abort return). Best-effort: individual failures are logged

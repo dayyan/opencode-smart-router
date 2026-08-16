@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "../../src/plugin/context";
 import { executeDelegate } from "../../src/plugin/delegate";
+import { createReasoningStore } from "../../src/reasoning/store";
 import * as agentsModule from "../../src/router/agents";
 import type { RouterConfig } from "../../src/router/config";
 import { resolveTierModelGuard } from "../../src/utils/tier-model-guard";
@@ -236,7 +237,7 @@ const makeCtx = (opts: {
       clear: () => undefined,
       record: () => undefined,
     } as any,
-    reasoningStore: {} as any,
+    reasoningStore: createReasoningStore(),
     graderSessions: new Set<string>(),
     verifyMutex: {} as any,
     seams: { exec: {} as any, fs: {} as any },
@@ -3282,5 +3283,160 @@ describe("executeDelegate — reasoning.effort without variant starts at configu
 
     // Baselines are restored after loop.
     expect(agent.heavy.options).toEqual({ reasoning_effort: "medium" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plan 038: per-tier reasoning ownership — the delegate path must participate
+// in the same `acquireTierOwner`/`releaseTierOwner` protocol as the hook path
+// so two concurrent dispatches on the same tier cannot race their baselines.
+// ---------------------------------------------------------------------------
+
+describe("executeDelegate — per-tier reasoning ownership (Plan 038)", () => {
+  it("acquires ownership, patches, and releases on the happy path", async () => {
+    const { cfg, agent } = makeReasoningCfg({ maxLevelBumpsPerTier: 2, maxAttemptsPerTier: 1 });
+
+    acceptMock.mockResolvedValueOnce({
+      accepted: true,
+      verdict: { pass: true, method: "deterministic", reasons: [] },
+      dodSource: "inferred",
+    });
+
+    const { ctx } = makeCtx({
+      getConfigImpl: () => cfg,
+      refreshConfigImpl: () => cfg,
+    });
+    (ctx as unknown as Record<string, unknown>).opencodeConfig = { agent };
+
+    // Pre-condition: no owner holds any tier.
+    expect(ctx.reasoningStore.getTierOwner("medium")).toBeUndefined();
+
+    const out = await executeDelegate(ctx, { task: "ownership happy path", tier: "medium" });
+
+    expect(out).toContain("[router ✓ accepted: deterministic]");
+
+    // Post-condition: every tier this invocation patched is unowned.
+    expect(ctx.reasoningStore.getTierOwner("medium")).toBeUndefined();
+    expect(ctx.reasoningStore.getTierOwner("high")).toBeUndefined();
+    expect(ctx.reasoningStore.getTierOwner("xhigh")).toBeUndefined();
+
+    // Baseline restored on every tier we touched.
+    expect(agent.medium.options).toEqual({ reasoning_effort: "medium" });
+    expect(agent.high.options).toEqual({ reasoning_effort: "high" });
+    expect(agent.xhigh.options).toEqual({ reasoning_effort: "xhigh" });
+  });
+
+  it("skips the patch when another session already owns the tier", async () => {
+    const { cfg, agent } = makeReasoningCfg({ maxLevelBumpsPerTier: 2, maxAttemptsPerTier: 1 });
+
+    // Single FAIL → bump → single PASS on the second attempt.
+    acceptMock
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        verdict: { pass: true, method: "deterministic", reasons: [] },
+        dodSource: "inferred",
+      });
+
+    const { ctx } = makeCtx({
+      getConfigImpl: () => cfg,
+      refreshConfigImpl: () => cfg,
+    });
+    (ctx as unknown as Record<string, unknown>).opencodeConfig = { agent };
+
+    // Foreign owner holds the tier BEFORE the delegate runs — simulates a
+    // hook-path patch that is mid-flight on the same tier.
+    ctx.reasoningStore.acquireTierOwner("medium", "hook-session-x");
+    expect(ctx.reasoningStore.getTierOwner("medium")).toBe("hook-session-x");
+
+    const out = await executeDelegate(ctx, { task: "ownership contention", tier: "medium" });
+
+    expect(out).toContain("[router ✓ accepted: deterministic]");
+
+    // Foreign owner is still in place — the delegate did not steal it.
+    expect(ctx.reasoningStore.getTierOwner("medium")).toBe("hook-session-x");
+
+    // The medium agent def was NEVER mutated by the delegate — the bump
+    // attempt was skipped because the tier was owned by someone else.
+    // (It stays at the baseline reasoning_effort = "medium" because no
+    // patch was ever applied.)
+    expect(agent.medium.options).toEqual({ reasoning_effort: "medium" });
+  });
+
+  it("two concurrent delegate invocations on the same tier serialize via ownership", async () => {
+    const { cfg, agent } = makeReasoningCfg({ maxLevelBumpsPerTier: 2, maxAttemptsPerTier: 1 });
+
+    // Each delegate: FAIL once → bump → PASS.
+    acceptMock
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        verdict: { pass: true, method: "deterministic", reasons: [] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: false,
+        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
+        dodSource: "inferred",
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        verdict: { pass: true, method: "deterministic", reasons: [] },
+        dodSource: "inferred",
+      });
+
+    const { ctx } = makeCtx({
+      getConfigImpl: () => cfg,
+      refreshConfigImpl: () => cfg,
+    });
+    (ctx as unknown as Record<string, unknown>).opencodeConfig = { agent };
+
+    // Spy on the debug logger to assert the skip event fires for the loser.
+    const { log } = await import("../../src/utils/observability");
+    const debugSpy = vi.spyOn(log, "debug").mockImplementation(() => {});
+
+    // Two concurrent delegates on the same tier — share the same fake ctx
+    // because the hook/executeDelegate code paths consult ctx.reasoningStore.
+    const [outA, outB] = await Promise.all([
+      executeDelegate(ctx, { task: "concurrent A", tier: "medium" }),
+      executeDelegate(ctx, { task: "concurrent B", tier: "medium" }),
+    ]);
+
+    expect(outA).toContain("[router ✓ accepted: deterministic]");
+    expect(outB).toContain("[router ✓ accepted: deterministic]");
+
+    // At least one skipped-concurrent event was emitted (the loser on
+    // overlap). Could be 1 or 2 depending on attempt-level interleaving,
+    // but at least one MUST fire because two delegates raced for "medium".
+    const skipEvents = debugSpy.mock.calls.filter(
+      (call) =>
+        (call[0] as Record<string, unknown>)?.event === "reasoning.patch_skipped_concurrent",
+    );
+    expect(skipEvents.length).toBeGreaterThanOrEqual(1);
+    // The recorded owner on each skip event must be the `delegate:`-prefixed
+    // key of the OTHER delegate (or our own if re-acquired within an attempt
+    // — both are valid; the important property is no foreign non-delegate key).
+    for (const call of skipEvents) {
+      const owner = (call[0] as Record<string, unknown>).owner as string;
+      expect(owner.startsWith("delegate:")).toBe(true);
+    }
+
+    // After both finish: every tier is unowned, every baseline is restored.
+    expect(ctx.reasoningStore.getTierOwner("medium")).toBeUndefined();
+    expect(ctx.reasoningStore.getTierOwner("high")).toBeUndefined();
+    expect(ctx.reasoningStore.getTierOwner("xhigh")).toBeUndefined();
+    expect(agent.medium.options).toEqual({ reasoning_effort: "medium" });
+    expect(agent.high.options).toEqual({ reasoning_effort: "high" });
+    expect(agent.xhigh.options).toEqual({ reasoning_effort: "xhigh" });
+
+    debugSpy.mockRestore();
   });
 });
