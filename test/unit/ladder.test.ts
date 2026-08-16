@@ -1402,3 +1402,130 @@ describe("nextAction — bump branch (WU-4)", () => {
     expect(a.action).toBe("bump");
   });
 });
+
+// ---------------------------------------------------------------------------
+// attempt accounting with bumps (039 characterization)
+//
+// Pins the bumps-first-then-retries arithmetic documented in Plan 039:
+//   produce attempts per tier = 1 (initial) + maxLevelBumpsPerTier + maxAttemptsPerTier.
+// Worst case with the SHIPPED base.json (maxAttemptsPerTier=2,
+// maxLevelBumpsPerTier=2): 5 produce attempts per tier.
+// ---------------------------------------------------------------------------
+
+describe("attempt accounting with bumps (039 characterization)", () => {
+  // 3-rung reasoning ladder, 2 bumps cap, 2 retries cap, 2 tiers total.
+  const p: EscalatePolicy = {
+    ladder: ["fast", "medium"],
+    floorTier: null,
+    maxAttemptsPerTier: 2,
+    maxTotalAttempts: 10,
+    costMultiple: null,
+    reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 },
+  };
+
+  it("bumps do not consume the retry budget: attemptsThisTier stays 0 across two bumps", () => {
+    const fail: LadderVerdict = { pass: false, cause: "verification_fail" };
+
+    let state: LadderState = {
+      currentTier: "fast",
+      attemptsThisTier: 0,
+      totalAttempts: 0,
+      escalations: 0,
+      firstAttemptCost: null,
+      cumulativeCost: 0,
+      levelIndex: 0,
+      bumpsThisTier: 0,
+      reasoningLadderLen: 3,
+    };
+
+    // First FAIL: bumps + rungs both available → bump.
+    let a = nextAction(state, fail, p);
+    expect(a.action).toBe("bump");
+    expect(state.attemptsThisTier).toBe(0); // unchanged by nextAction (no recordAttempt yet)
+    state = advance(state, a);
+    expect(state.levelIndex).toBe(1);
+    expect(state.bumpsThisTier).toBe(1);
+    expect(state.attemptsThisTier).toBe(0); // bumps must not touch the retry budget
+
+    // Second FAIL: still rungs + bumps available → bump.
+    a = nextAction(state, fail, p);
+    expect(a.action).toBe("bump");
+    state = advance(state, a);
+    expect(state.levelIndex).toBe(2);
+    expect(state.bumpsThisTier).toBe(2);
+    expect(state.attemptsThisTier).toBe(0); // still zero — the retry budget is intact
+
+    // Third FAIL: bumpsThisTier=2 === maxLevelBumpsPerTier → bumps exhausted,
+    // canBumpReasoning returns false → enters else-wrap branch 6 (retry).
+    // attemptsThisTier=0 < maxAttemptsPerTier=2 → retry, not escalate.
+    a = nextAction(state, fail, p);
+    expect(a.action).toBe("retry");
+    expect(state.attemptsThisTier).toBe(0);
+    state = advance(state, a);
+    expect(state.attemptsThisTier).toBe(1); // first retry consumed
+  });
+
+  it("worst-case per-tier arithmetic: 1 initial + 2 bumps + 2 retries = 5 attempts then escalate", () => {
+    const fail: LadderVerdict = { pass: false, cause: "verification_fail" };
+
+    let state: LadderState = {
+      currentTier: "fast",
+      attemptsThisTier: 0,
+      totalAttempts: 0,
+      escalations: 0,
+      firstAttemptCost: null,
+      cumulativeCost: 0,
+      levelIndex: 0,
+      bumpsThisTier: 0,
+      reasoningLadderLen: 3,
+    };
+
+    // Drive the bump-phase to its end (2 bumps for a 3-rung ladder).
+    for (let i = 0; i < 2; i++) {
+      const a = nextAction(state, fail, p);
+      expect(a.action).toBe("bump");
+      state = advance(state, a);
+    }
+    expect(state.bumpsThisTier).toBe(2);
+    expect(state.levelIndex).toBe(2);
+    expect(state.attemptsThisTier).toBe(0); // bump phase never touched retries
+
+    // Now drive the retry phase. Each retry increments attemptsThisTier.
+    const firstRetry = nextAction(state, fail, p);
+    expect(firstRetry.action).toBe("retry");
+    state = advance(state, firstRetry);
+    expect(state.attemptsThisTier).toBe(1);
+
+    const secondRetry = nextAction(state, fail, p);
+    expect(secondRetry.action).toBe("retry");
+    state = advance(state, secondRetry);
+    expect(state.attemptsThisTier).toBe(2);
+
+    // Once attemptsThisTier reaches maxAttemptsPerTier (2), no further retry.
+    // Falls through to branch 7 → escalate to "medium".
+    const escalateAction = nextAction(state, fail, p);
+    expect(escalateAction.action).toBe("escalate");
+    expect(escalateAction.tier).toBe("medium");
+  });
+
+  it("top-of-rung with bumps still remaining escalates (pins the collapsed `!rungsRemain` path)", () => {
+    // levelIndex 2 is the top of a 3-rung ladder (idx 0,1,2).
+    // bumpsThisTier=1 < maxLevelBumpsPerTier=2 → bumps remain mathematically,
+    // but no rung above → bump is impossible; must escalate.
+    const s: LadderState = {
+      currentTier: "fast",
+      attemptsThisTier: 0,
+      totalAttempts: 0,
+      escalations: 0,
+      firstAttemptCost: null,
+      cumulativeCost: 0,
+      levelIndex: 2,
+      bumpsThisTier: 1,
+      reasoningLadderLen: 3,
+    };
+    const fail: LadderVerdict = { pass: false, cause: "verification_fail" };
+    const a = nextAction(s, fail, p);
+    expect(a.action).toBe("escalate");
+    expect(a.tier).toBe("medium");
+  });
+});

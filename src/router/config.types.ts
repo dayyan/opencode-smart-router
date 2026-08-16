@@ -86,6 +86,13 @@ export interface EnforcementConfig {
   escalate?: {
     floorTier?: string | null;
     ladder?: string[];
+    /**
+     * Retries allowed within a tier AFTER its reasoning-level bumps are
+     * exhausted (bumps run first when reasoningEscalation.enabled). Worst-case
+     * produce attempts per tier = 1 (initial) + maxLevelBumpsPerTier (bumps)
+     * + this field (retries). Every attempt also counts toward
+     * maxTotalAttempts, which is the hard global bound.
+     */
     maxAttemptsPerTier?: number;
     maxTotalAttempts?: number;
     costCeiling?: { base?: string; multiple?: number };

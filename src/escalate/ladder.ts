@@ -179,10 +179,13 @@ export const nextAction = (
         forcingMessage: buildLadderForcingMessage(verdict?.reasons ?? []),
       };
     }
-    // Bumps exhausted: escalate within tier instead of retry.
-    // Only escalates here when bumpsLeft <= 0 at a non-top-rung level
-    // (top-rung case falls through to branch 7 give_up or tier-escalate below).
-    if (!rungsRemain || bumpsLeft <= 0) {
+    // Top of the tier's reasoning ladder (no rungs remain above the current
+    // level): escalate to the next tier. NOTE: `bumpsLeft <= 0` can NEVER be
+    // true here — `canBumpReasoning` (line ~127) already returned false for
+    // bumpsLeft <= 0, and this block only runs when it returned true. The
+    // bumps-exhausted case therefore also lands here, via the `!rungsRemain`
+    // path after the last bump consumed the final rung.
+    if (!rungsRemain) {
       const next = nextTierAfter(state.currentTier, policy);
       if (next != null) {
         return {
