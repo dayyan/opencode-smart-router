@@ -189,8 +189,13 @@ describe("Mode A end-to-end enforcement loop", () => {
     expect(result).toContain("[router status: unmet]");
     expect(result).toContain("attempt(s)");
     expect(result).not.toContain("[router ✓ accepted:");
-    // The configured ladder reaches its terminal path after eight calls.
-    expect(producerCalls.length).toBe(8);
+    // Shipped default policy: fast ×3 (1 initial + 2 retries), light ×5
+    // (1 initial + 2 reasoning bumps + 2 retries, 5-rung ladder), medium ×2 —
+    // give_up fires at maxTotalAttempts=10. focused and heavy are never reached.
+    expect(producerCalls.length).toBe(10);
+    expect(producerCalls.slice(0, 3).every((c) => c.tier === "fast")).toBe(true);
+    expect(producerCalls.slice(3, 8).every((c) => c.tier === "light")).toBe(true);
+    expect(producerCalls.slice(8, 10).every((c) => c.tier === "medium")).toBe(true);
   });
 
   // -------------------------------------------------------------------------

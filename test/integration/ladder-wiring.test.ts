@@ -190,8 +190,12 @@ describe("Layer-3 escalation ladder wiring", () => {
     expect(result).toContain("[router status: unmet]");
     expect(result).toContain("attempt(s)");
     expect(result).not.toContain("[router ✓ accepted:");
-    // Configured path reaches the medium tier after the fast/light attempts and
-    // terminates after eight producer calls under the current ladder policy.
-    expect(producerCalls.length).toBe(8);
+    // Shipped default policy: fast ×3 (1 initial + 2 retries), light ×5
+    // (1 initial + 2 reasoning bumps + 2 retries, 5-rung ladder), medium ×2 —
+    // give_up fires at maxTotalAttempts=10. focused and heavy are never reached.
+    expect(producerCalls.length).toBe(10);
+    expect(producerCalls.slice(0, 3).every((c) => c.tier === "fast")).toBe(true);
+    expect(producerCalls.slice(3, 8).every((c) => c.tier === "light")).toBe(true);
+    expect(producerCalls.slice(8, 10).every((c) => c.tier === "medium")).toBe(true);
   });
 });
