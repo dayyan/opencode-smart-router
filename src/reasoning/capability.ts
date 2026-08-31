@@ -30,6 +30,43 @@ export type ReasoningLevel = "minimal" | "normal" | "elevated" | "max";
 export type ReasoningField = "variant" | "reasoning.effort" | "thinking.budgetTokens";
 
 /**
+ * V2 channel type — per-plan-041 D-4 rename of ReasoningField.
+ * The single switch mapping channel → agent-def patch lives here so
+ * `capability.ts` remains the honest home for every channel concern.
+ */
+export type ReasoningControlChannel = ReasoningField;
+
+/** Frozen list of all valid channels — consumed by the config validator. */
+export const REASONING_CONTROL_CHANNELS: readonly ReasoningControlChannel[] = [
+  "variant",
+  "reasoning.effort",
+  "thinking.budgetTokens",
+] as const;
+
+/**
+ * Route a resolved native value through its channel to produce an agent-def
+ * patch. Pure — no IO, no state.
+ *
+ * Per spec "Channel Patch Mapping":
+ *   - `"variant"`             → `{ variant: <string> }`
+ *   - `"reasoning.effort"`    → `{ options: { reasoning_effort: <string> } }`
+ *   - `"thinking.budgetTokens"` → `{ options: { budget_tokens: <number> } }`
+ */
+export const channelPatch = (
+  channel: ReasoningControlChannel,
+  native: string | number,
+): { variant?: string; options?: Record<string, unknown> } | null => {
+  switch (channel) {
+    case "variant":
+      return { variant: native as string };
+    case "reasoning.effort":
+      return { options: { reasoning_effort: native as string } };
+    case "thinking.budgetTokens":
+      return { options: { budget_tokens: native as number } };
+  }
+};
+
+/**
  * Capability shape describing how a tier exposes reasoning control.
  *
  * - `none`     — tier exposes no reasoning control; NEVER mutated by the router.

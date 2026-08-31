@@ -11,6 +11,7 @@
 // without forcing every consumer to learn the new module path.
 export type {
   ReasoningCapability,
+  ReasoningControlChannel,
   ReasoningField,
   ReasoningLevel,
 } from "../reasoning/capability.js";
@@ -42,6 +43,12 @@ export interface TierConfig {
    * pre-Plan-010 configs working unchanged.
    */
   capability?: import("../reasoning/capability.js").ReasoningCapability;
+  /**
+   * V2 per-tier reasoning control (plan 041). Replaces `capability`.
+   * A tier without `reasoningControl` has no reasoning control, cannot bump,
+   * and is valid — dispatch proceeds with no reasoning patch.
+   */
+  reasoningControl?: ReasoningControl;
 }
 
 export type Preset = Record<string, TierConfig>;
@@ -212,6 +219,88 @@ export interface ReasoningPolicyConfig {
   surfaceLimits?: boolean;
   /** Adaptive-mode knobs. Only consulted when `mode === "adaptive"`. */
   adaptive?: AdaptivePolicyConfig;
+}
+
+// ---------------------------------------------------------------------------
+// V2 types — plan 041 user-owned reasoning profiles
+// ---------------------------------------------------------------------------
+
+/**
+ * Opaque, user-owned reasoning intent ID. Membership in
+ * `ReasoningPolicyConfig.profiles` is the only validity criterion.
+ * Code never interprets, special-cases, or enumerates these names.
+ */
+export type ReasoningProfileId = string;
+
+/**
+ * String-based reasoning control for `variant` and `reasoning.effort` channels.
+ * Levels are ordered low→high; array index is the only semantics.
+ */
+export interface StringReasoningControl {
+  channel: "variant" | "reasoning.effort";
+  /** Ordered low→high. Unique non-empty strings. */
+  levels: [string, ...string[]];
+  /** Every registered profile ID → a member of levels. No extras. */
+  profileMap: Record<ReasoningProfileId, string>;
+  /** 0 = bumping disabled. Integer, 0 ≤ maxBumps ≤ levels.length - 1. */
+  maxBumps: number;
+}
+
+/**
+ * Token-budget reasoning control for the `thinking.budgetTokens` channel.
+ * Levels are ordered low→high as ascending non-negative integers.
+ */
+export interface BudgetReasoningControl {
+  channel: "thinking.budgetTokens";
+  /** Ordered low→high. Unique, ascending, non-negative integers. */
+  levels: [number, ...number[]];
+  profileMap: Record<ReasoningProfileId, number>;
+  maxBumps: number;
+}
+
+/** Either string-level or budget-level reasoning control. */
+export type ReasoningControl = StringReasoningControl | BudgetReasoningControl;
+
+/**
+ * Keyword rule consequence is now a profile ID, not a normalized level.
+ * Same match grammar as the existing `AdaptiveKeywordRule` (word|stem|substring|regex).
+ */
+export interface AdaptiveProfileRule {
+  keywords: string[];
+  excludeKeywords?: string[];
+  match?: import("../reasoning/match.js").MatchMode;
+  /** Must be a registered profile ID. */
+  profile: ReasoningProfileId;
+}
+
+/**
+ * V2 reasoning policy — replaces the old `ReasoningPolicyConfig` shape.
+ *
+ * Key changes from v1:
+ * - `profiles` is a closed registry (profile IDs owned by tiers.json)
+ * - `defaultProfile` replaces `defaultLevel` (profile ID, not normalized level)
+ * - `adaptive` uses `trivialProfile`, `tierProfileDefaults`, and `rules[]`
+ *   with profile ID consequences instead of level consequences
+ */
+export interface ReasoningPolicyConfigV2 {
+  mode?: "static" | "manual" | "adaptive";
+  /**
+   * Closed registry. Unique, non-empty. REQUIRED once any tier has
+   * `reasoningControl` or mode != "static".
+   */
+  profiles?: ReasoningProfileId[];
+  /**
+   * Fallback + manual/implicit default. Must be a registered profile.
+   * REQUIRED when mode is "manual" or "adaptive".
+   */
+  defaultProfile?: ReasoningProfileId;
+  surfaceLimits?: boolean;
+  adaptive?: {
+    trivialProfile?: ReasoningProfileId | null;
+    tierProfileDefaults?: Record<string, ReasoningProfileId>;
+    rules?: AdaptiveProfileRule[];
+    surfaceDecision?: boolean;
+  };
 }
 
 export interface RouterConfig {

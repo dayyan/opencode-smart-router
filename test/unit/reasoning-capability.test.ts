@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { inferCapability } from "../../src/reasoning/capability";
+import {
+  channelPatch,
+  inferCapability,
+  type ReasoningControlChannel,
+} from "../../src/reasoning/capability";
 import type { TierConfig } from "../../src/router/config.types";
 
 // ---------------------------------------------------------------------------
@@ -163,5 +167,57 @@ describe("inferCapability", () => {
         recommended: { minimal: 1024, normal: 4096, elevated: 8192, max: 16000 },
       });
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// channelPatch — per spec: "Each channel writes its target"
+// ---------------------------------------------------------------------------
+
+describe("channelPatch", () => {
+  describe("variant channel", () => {
+    it("returns { variant: <value> } for the variant channel", () => {
+      expect(channelPatch("variant", "low")).toEqual({ variant: "low" });
+      expect(channelPatch("variant", "high")).toEqual({ variant: "high" });
+      expect(channelPatch("variant", "thinking")).toEqual({ variant: "thinking" });
+    });
+
+    it("returns { variant: <value> } regardless of the string value", () => {
+      expect(channelPatch("variant", "none")).toEqual({ variant: "none" });
+      expect(channelPatch("variant", "max")).toEqual({ variant: "max" });
+    });
+  });
+
+  describe("reasoning.effort channel", () => {
+    it("returns { options: { reasoning_effort: <value> } } for the effort channel", () => {
+      expect(channelPatch("reasoning.effort", "low")).toEqual({
+        options: { reasoning_effort: "low" },
+      });
+      expect(channelPatch("reasoning.effort", "high")).toEqual({
+        options: { reasoning_effort: "high" },
+      });
+    });
+  });
+
+  describe("thinking.budgetTokens channel", () => {
+    it("returns { options: { budget_tokens: <value> } } for the budget channel", () => {
+      expect(channelPatch("thinking.budgetTokens", 1024)).toEqual({
+        options: { budget_tokens: 1024 },
+      });
+      expect(channelPatch("thinking.budgetTokens", 16384)).toEqual({
+        options: { budget_tokens: 16384 },
+      });
+    });
+  });
+});
+
+describe("ReasoningControlChannel", () => {
+  it("accepts all three channel literals", () => {
+    const channels: ReasoningControlChannel[] = [
+      "variant",
+      "reasoning.effort",
+      "thinking.budgetTokens",
+    ];
+    expect(channels).toHaveLength(3);
   });
 });

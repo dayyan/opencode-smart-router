@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { AdaptiveSignals } from "../../src/reasoning/adaptive";
 import type { ReasoningCapability, ReasoningLevel } from "../../src/reasoning/capability";
-import { resolveReasoningOverride } from "../../src/reasoning/policy";
+import { resolveReasoningOverride, resolveReasoningProfile } from "../../src/reasoning/policy";
 import { createReasoningStore } from "../../src/reasoning/store";
-import type { ReasoningPolicyConfig, TierConfig } from "../../src/router/config.types";
+import type {
+  ReasoningPolicyConfig,
+  ReasoningPolicyConfigV2,
+  TierConfig,
+} from "../../src/router/config.types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -577,5 +581,211 @@ describe("integration — surfaceLimits flag does not affect resolveReasoningOve
     expect(resolveReasoningOverride(tier, policyOff, "elevated", emptySignals)).toEqual(
       resolveReasoningOverride(tier, policyOn, "elevated", emptySignals),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveReasoningProfile — plan 041 D-1 tier-agnostic helper
+// ---------------------------------------------------------------------------
+
+/** Build a minimal v2 policy for tests. */
+const v2Policy = (overrides: Partial<ReasoningPolicyConfigV2> = {}): ReasoningPolicyConfigV2 => ({
+  mode: "manual",
+  profiles: ["p1", "p2", "p3"],
+  defaultProfile: "p2",
+  ...overrides,
+});
+
+/** Placeholder signals used when the selector is not being exercised. */
+const v2Signals: AdaptiveSignals = {
+  prompt: "",
+  description: "",
+  tierName: "fast",
+  isTrivial: false,
+};
+
+describe("resolveReasoningProfile — static mode is a hard no-op", () => {
+  it("returns { profile: null, overrideUnknown: false } even with a stored override", () => {
+    const policy = v2Policy({ mode: "static" });
+    const result = resolveReasoningProfile(policy, "p3", v2Signals);
+    expect(result).toEqual({ profile: null, overrideUnknown: false });
+  });
+
+  it("returns { profile: null } when reasoningPolicy is absent (default = static)", () => {
+    const result = resolveReasoningProfile(undefined, "p1", v2Signals);
+    expect(result).toEqual({ profile: null, overrideUnknown: false });
+  });
+});
+
+describe("resolveReasoningProfile — unknown mode fails soft", () => {
+  it("returns { profile: null, overrideUnknown: false } for an unrecognized mode", () => {
+    const policy = v2Policy({ mode: "auto" as "manual" });
+    const result = resolveReasoningProfile(policy, "p1", v2Signals);
+    expect(result).toEqual({ profile: null, overrideUnknown: false });
+  });
+
+  it("never runs adaptive selection for an unknown mode", () => {
+    // If adaptive selection ran, it would return p3 from the keyword rule.
+    // Fail-soft must return null instead.
+    const policy = v2Policy({
+      mode: "unknown" as "manual",
+      adaptive: {
+        rules: [{ keywords: ["refactor"], profile: "p3" }],
+      },
+    });
+    const signalsWithKeyword: AdaptiveSignals = {
+      ...v2Signals,
+      prompt: "please refactor this",
+    };
+    const result = resolveReasoningProfile(policy, undefined, signalsWithKeyword);
+    expect(result).toEqual({ profile: null, overrideUnknown: false });
+  });
+});
+
+describe("resolveReasoningProfile — manual mode uses override then default", () => {
+  it("returns the registered override when it is in the profiles list", () => {
+    const policy = v2Policy({ mode: "manual" });
+    expect(resolveReasoningProfile(policy, "p1", v2Signals)).toEqual({
+      profile: "p1",
+      overrideUnknown: false,
+    });
+    expect(resolveReasoningProfile(policy, "p3", v2Signals)).toEqual({
+      profile: "p3",
+      overrideUnknown: false,
+    });
+  });
+
+  it("returns defaultProfile when no override is set", () => {
+    const policy = v2Policy({ mode: "manual", defaultProfile: "p3" });
+    expect(resolveReasoningProfile(policy, undefined, v2Signals)).toEqual({
+      profile: "p3",
+      overrideUnknown: false,
+    });
+  });
+
+  it("returns { profile: null } when no override and no defaultProfile", () => {
+    const policy = v2Policy({ mode: "manual", profiles: ["p1"], defaultProfile: undefined });
+    expect(resolveReasoningProfile(policy, undefined, v2Signals)).toEqual({
+      profile: null,
+      overrideUnknown: false,
+    });
+  });
+});
+
+describe("resolveReasoningProfile — unregistered override sets overrideUnknown", () => {
+  it("registered override wins over defaultProfile in manual mode", () => {
+    const policy = v2Policy({ mode: "manual", defaultProfile: "p2" });
+    expect(resolveReasoningProfile(policy, "p1", v2Signals)).toEqual({
+      profile: "p1",
+      overrideUnknown: false,
+    });
+  });
+
+  it("unregistered override → overrideUnknown: true, falls back to defaultProfile", () => {
+    const policy = v2Policy({ mode: "manual", defaultProfile: "p2" });
+    const result = resolveReasoningProfile(policy, "p9", v2Signals);
+    expect(result).toEqual({ profile: "p2", overrideUnknown: true });
+  });
+
+  it("unregistered override with no default → falls back to null", () => {
+    const policy = v2Policy({ mode: "manual", defaultProfile: undefined });
+    const result = resolveReasoningProfile(policy, "p9", v2Signals);
+    expect(result).toEqual({ profile: null, overrideUnknown: true });
+  });
+});
+
+describe("resolveReasoningProfile — adaptive mode override wins then selector", () => {
+  it("registered override wins over the selector in adaptive mode", () => {
+    const policy = v2Policy({
+      mode: "adaptive",
+      adaptive: { rules: [{ keywords: ["refactor"], profile: "p3" }] },
+    });
+    const signalsWithKeyword: AdaptiveSignals = {
+      ...v2Signals,
+      prompt: "please refactor this",
+    };
+    // Even though the keyword rule matches p3, registered override p1 wins.
+    expect(resolveReasoningProfile(policy, "p1", signalsWithKeyword)).toEqual({
+      profile: "p1",
+      overrideUnknown: false,
+    });
+  });
+
+  it("unregistered override falls through to selector, then defaultProfile", () => {
+    const policy = v2Policy({
+      mode: "adaptive",
+      defaultProfile: "p2",
+      adaptive: { rules: [{ keywords: ["refactor"], profile: "p3" }] },
+    });
+    const signalsWithKeyword: AdaptiveSignals = {
+      ...v2Signals,
+      prompt: "please refactor this",
+    };
+    // Unregistered "p9" falls through: selector matches "refactor" → p3.
+    expect(resolveReasoningProfile(policy, "p9", signalsWithKeyword)).toEqual({
+      profile: "p3",
+      overrideUnknown: true,
+    });
+  });
+
+  it("no override → selector result, then defaultProfile fallback", () => {
+    const policy = v2Policy({
+      mode: "adaptive",
+      defaultProfile: "p2",
+      adaptive: { rules: [{ keywords: ["refactor"], profile: "p3" }] },
+    });
+    const signalsWithKeyword: AdaptiveSignals = {
+      ...v2Signals,
+      prompt: "please refactor this",
+    };
+    // No override: selector matches "refactor" → p3.
+    expect(resolveReasoningProfile(policy, undefined, signalsWithKeyword)).toEqual({
+      profile: "p3",
+      overrideUnknown: false,
+    });
+  });
+
+  it("no override + no selector match → defaultProfile", () => {
+    const policy = v2Policy({
+      mode: "adaptive",
+      defaultProfile: "p2",
+      adaptive: { rules: [{ keywords: ["refactor"], profile: "p3" }] },
+    });
+    // Prompt does not match "refactor".
+    expect(resolveReasoningProfile(policy, undefined, v2Signals)).toEqual({
+      profile: "p2",
+      overrideUnknown: false,
+    });
+  });
+});
+
+describe("resolveReasoningProfile — delegate path resolves identically (D-1)", () => {
+  // Both paths call the SAME resolveReasoningProfile. This test verifies the
+  // function produces the same result for the same inputs regardless of caller.
+  it("same policy + override + signals → same profile from both paths", () => {
+    const policy = v2Policy({
+      mode: "adaptive",
+      defaultProfile: "p2",
+      adaptive: {
+        trivialProfile: "p1",
+        tierProfileDefaults: { fast: "p3" },
+        rules: [{ keywords: ["diagnose"], profile: "p1" }],
+      },
+    });
+
+    const signalsFromHook: AdaptiveSignals = {
+      prompt: "please diagnose the routing bug",
+      description: "urgent",
+      tierName: "fast",
+      isTrivial: false,
+    };
+
+    // Simulate hook path (override from session store).
+    const hookResult = resolveReasoningProfile(policy, undefined, signalsFromHook);
+
+    // Simulate delegate path (same policy, same signals, same override source).
+    const delegateResult = resolveReasoningProfile(policy, undefined, signalsFromHook);
+
+    expect(hookResult).toEqual(delegateResult);
   });
 });

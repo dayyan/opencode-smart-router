@@ -29,7 +29,7 @@ import { guardBeforeCall } from "../../guard/enforce";
 import type { AdaptiveSignals } from "../../reasoning/adaptive.js";
 import { selectAdaptiveLevel } from "../../reasoning/adaptive.js";
 import { normalizeSignalText } from "../../reasoning/match.js";
-import { resolveReasoningOverride } from "../../reasoning/policy.js";
+import { resolveReasoningOverride, resolveReasoningProfile } from "../../reasoning/policy.js";
 import { applyReasoningPatch } from "../../router/agents";
 import { getActiveTiers } from "../../router/protocol";
 import { READ_ONLY_TOOLS } from "../../router/tools";
@@ -183,6 +183,28 @@ export const applyOrchestratorReasoningPatch = async (params: {
               tierName: subagentType,
               isTrivial: ctx.sessionStore.isTrivial(sid),
             };
+
+            // --- v2 path: resolveReasoningProfile (plan 041 D-1) ---
+            // The tier-agnostic helper serves BOTH the task-tool hook path (here)
+            // and the delegate path (delegate.ts enterTier). Per-tier native-value
+            // mapping via resolveControlPatch lands in WU-2.
+            // Guard: only invoke when a v2 registry is present (profiles[] exists).
+            // A v1-shaped policy (no profiles) must not trigger the v2 path.
+            const v2Policy = cfg.reasoningPolicy as Parameters<typeof resolveReasoningProfile>[0];
+            if (v2Policy && "profiles" in v2Policy) {
+              const v2resolution = resolveReasoningProfile(v2Policy, override, signals);
+              if (v2resolution.overrideUnknown) {
+                log.debug({
+                  event: "reasoning.override_unknown_profile",
+                  session: sid,
+                  tier: subagentType,
+                  override,
+                });
+              }
+            }
+
+            // --- v1 path: resolveReasoningOverride (legacy, expand phase) ---
+            // Kept working in parallel until WU-10 deletes the legacy identifiers.
             const resolved = resolveReasoningOverride(tier, cfg.reasoningPolicy, override, signals);
             if (resolved) {
               applyReasoningPatch(agentDef, resolved);
