@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AdaptiveSignals } from "../../src/reasoning/adaptive";
 import { resolveReasoningOverride } from "../../src/reasoning/policy";
+import { patchAtIndex, resolveControlPatch } from "../../src/reasoning/translate";
 import {
   applyReasoningPatch,
   buildAgentOptions,
@@ -369,6 +370,32 @@ describe("restoreAgentBaseline", () => {
     const agentDef: Record<string, unknown> = structuredClone(baseline);
     restoreAgentBaseline(agentDef, baseline);
     expect(agentDef.options).toBe(nested);
+  });
+});
+
+describe("Plan 041 Phase 2.5 — profile patch/restore parity", () => {
+  it("applies the registry-selected native level and restores the baseline", () => {
+    const tier = makeTier({
+      reasoning: { effort: "low" },
+      reasoningControl: {
+        channel: "reasoning.effort",
+        levels: ["low", "high"],
+        profileMap: { p1: "low", p2: "high" },
+        maxBumps: 0,
+      },
+    });
+    const opencodeConfig: Record<string, any> = {};
+    registerTierAgents(opencodeConfig, makePreset({ fast: tier }), makeConfig());
+    const agentDef = opencodeConfig.agent.fast;
+    const baseline = structuredClone(agentDef);
+    const selected = resolveControlPatch(tier.reasoningControl, "p2");
+
+    expect(selected).toEqual({ native: "high", levelIndex: 1 });
+    applyReasoningPatch(agentDef, patchAtIndex(tier.reasoningControl, selected!.levelIndex));
+    expect(agentDef.options).toEqual({ reasoning_effort: "high" });
+
+    restoreAgentBaseline(agentDef, baseline);
+    expect(agentDef).toEqual(baseline);
   });
 });
 

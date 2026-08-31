@@ -28,6 +28,7 @@ import {
   saveEnforcementMode,
   saveReasoningMode,
 } from "../config";
+import type { ReasoningPolicyConfigV2 } from "../config.types";
 import { getActiveTiers } from "../protocol";
 import {
   buildBudgetOutput,
@@ -116,7 +117,7 @@ export const registerRouterCommands = (opencodeConfig: {
   opencodeConfig.command["model-router-reasoning"] = {
     template: "$ARGUMENTS",
     description:
-      "Reasoning control: /model-router-reasoning mode <static|manual|adaptive> (persists) | /model-router-reasoning minimal|normal|elevated|max (set) | /model-router-reasoning off (clear)",
+      "Reasoning control: /model-router-reasoning mode <static|manual|adaptive> (persists) | /model-router-reasoning <registered-profile> (set) | /model-router-reasoning off (clear)",
   };
 };
 
@@ -225,25 +226,37 @@ export const handleCommandBefore = async (
     const cfg = await ctx.getFreshConfig();
     const args = input.arguments ?? "";
     const sessionID = input.sessionID ?? "";
-    const tokens = args.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    const sub = tokens[0] ?? "";
+    const tokens = args.trim().split(/\s+/).filter(Boolean);
+    const profile = tokens[0] ?? "";
+    const sub = profile.toLowerCase();
     let resolvedPolicyMode: "static" | "manual" | "adaptive" | undefined;
 
     // --- `mode` subcommand: persist policy-mode overlay ---
     if (
       sub === "mode" &&
       tokens[1] &&
-      (tokens[1] === "static" || tokens[1] === "manual" || tokens[1] === "adaptive")
+      (tokens[1].toLowerCase() === "static" ||
+        tokens[1].toLowerCase() === "manual" ||
+        tokens[1].toLowerCase() === "adaptive")
     ) {
-      await saveReasoningMode(tokens[1]);
-      resolvedPolicyMode = tokens[1];
+      const mode = tokens[1].toLowerCase() as "static" | "manual" | "adaptive";
+      await saveReasoningMode(mode);
+      resolvedPolicyMode = mode;
     }
 
-    // --- per-session override flow (minimal|normal|elevated|max|off) ---
+    // --- per-session override flow (registered profile|off) ---
     if (sub === "off") {
       if (sessionID) ctx.reasoningStore.clearOverride(sessionID);
-    } else if (sub === "minimal" || sub === "normal" || sub === "elevated" || sub === "max") {
-      if (sessionID) ctx.reasoningStore.setOverride(sessionID, sub);
+    } else {
+      const policy = cfg.reasoningPolicy as ReasoningPolicyConfigV2 | undefined;
+      const legacyProfile = ["minimal", "normal", "elevated", "max"].includes(profile);
+      if (
+        (policy?.profiles?.includes(profile) ||
+          (!Array.isArray(policy?.profiles) && legacyProfile)) &&
+        sessionID
+      ) {
+        ctx.reasoningStore.setOverride(sessionID, profile);
+      }
     }
 
     output.parts.push({

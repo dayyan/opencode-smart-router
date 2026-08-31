@@ -35,7 +35,7 @@ export type AgentBaseline = Record<string, unknown>;
  * singleton — concurrent plugin instances must not share mutable state.
  */
 export const createReasoningStore = () => {
-  const overrides = new Map<string, ReasoningLevel>();
+  const overrides = new Map<string, string>();
   const baselines = new Map<string, AgentBaseline>();
   // Per-tier in-flight owner: the sessionID currently holding the patch lock
   // for a given tier, or `undefined` when no patch is in flight.
@@ -43,11 +43,13 @@ export const createReasoningStore = () => {
 
   return {
     // ----- session override ------------------------------------------------
+    // The legacy return annotation is retained until the v1 policy callers are
+    // removed; values are opaque strings at runtime in the v2 path.
     getOverride(sessionID: string): ReasoningLevel | undefined {
-      return overrides.get(sessionID);
+      return overrides.get(sessionID) as ReasoningLevel | undefined;
     },
-    setOverride(sessionID: string, level: ReasoningLevel): void {
-      overrides.set(sessionID, level);
+    setOverride(sessionID: string, profile: string): void {
+      overrides.set(sessionID, profile);
     },
     clearOverride(sessionID: string): void {
       overrides.delete(sessionID);
