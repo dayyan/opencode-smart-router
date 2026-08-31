@@ -800,3 +800,290 @@ describe("selectAdaptiveLevel — Plan 018 match-mode coverage", () => {
     expect(selectAdaptiveLevel(signals, policy).level).toBe("normal");
   });
 });
+
+// ---------------------------------------------------------------------------
+// selectAdaptiveLevelV2 — V2 selector (plan 041)
+//
+// Same decision order as v1 but returns profile IDs (from `AdaptiveProfileRule.profile`
+// instead of `AdaptiveKeywordRule.level`). Step 4 returns null (no profile selected);
+// the caller applies `defaultProfile` as the safety net.
+//
+// Fixture IDs used throughout: `p1=light`, `p2=standard`, `p3=deep`
+// (per tasks.md R-2 data table: bundled-config DATA, never code constants).
+// ---------------------------------------------------------------------------
+
+import { selectAdaptiveLevelV2 } from "../../src/reasoning/adaptive";
+import type { ReasoningPolicyConfigV2 } from "../../src/router/config.types";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const makeV2Policy = (
+  adaptive: Parameters<typeof selectAdaptiveLevelV2>[1]["adaptive"],
+  overrides: Partial<{
+    defaultProfile: string | null;
+  }> = {},
+): ReasoningPolicyConfigV2 => ({
+  mode: "adaptive",
+  profiles: ["light", "standard", "deep"],
+  defaultProfile: "standard",
+  adaptive,
+  ...overrides,
+});
+
+const v2Signals = {
+  prompt: "implement a new feature",
+  description: "add a button to the dashboard",
+  tierName: "medium",
+  isTrivial: false,
+};
+
+// ---------------------------------------------------------------------------
+// Decision order: same as v1, but profile IDs instead of levels
+// ---------------------------------------------------------------------------
+
+describe("selectAdaptiveLevelV2 — decision order (WU-4)", () => {
+  // Branch 1: no adaptive config → { null, "no adaptive config" }
+  it("returns { null } when policy is undefined", () => {
+    const result = selectAdaptiveLevelV2(v2Signals, undefined);
+    expect(result.profile).toBeNull();
+    expect(result.reason).toBe("no adaptive config");
+  });
+
+  it("returns { null } when adaptive block is absent", () => {
+    const policy: ReasoningPolicyConfigV2 = {
+      mode: "adaptive",
+      profiles: ["light"],
+      defaultProfile: "standard",
+    };
+    const result = selectAdaptiveLevelV2(v2Signals, policy);
+    expect(result.profile).toBeNull();
+    expect(result.reason).toBe("no adaptive config");
+  });
+
+  // Branch 2: trivial short-circuit
+  it("applies trivialProfile when isTrivial=true", () => {
+    const policy = makeV2Policy({ trivialProfile: "deep" });
+    const signals = { ...v2Signals, isTrivial: true };
+    const result = selectAdaptiveLevelV2(signals, policy);
+    expect(result.profile).toBe("deep");
+    expect(result.reason).toBe("trivial");
+  });
+
+  it("returns { null } when isTrivial=true and trivialProfile is absent", () => {
+    const policy = makeV2Policy({});
+    const signals = { ...v2Signals, isTrivial: true };
+    const result = selectAdaptiveLevelV2(signals, policy);
+    expect(result.profile).toBeNull();
+  });
+
+  it("returns { null } when isTrivial=true and trivialProfile is explicitly null", () => {
+    // base.json ships `trivialProfile: null` — selector must treat explicit null identically to absent.
+    const policy = makeV2Policy({ trivialProfile: null, defaultProfile: "standard" });
+    const signals = { ...v2Signals, isTrivial: true };
+    const result = selectAdaptiveLevelV2(signals, policy);
+    expect(result.profile).toBeNull();
+  });
+
+  it("trivial short-circuits BEFORE tierProfileDefaults", () => {
+    const policy = makeV2Policy({
+      trivialProfile: "light",
+      tierProfileDefaults: { medium: "deep" },
+    });
+    const signals = { ...v2Signals, isTrivial: true, tierName: "medium" };
+    const result = selectAdaptiveLevelV2(signals, policy);
+    expect(result.profile).toBe("light"); // trivial wins over tier default
+  });
+
+  // Branch 3: tierProfileDefaults
+  it("returns tierProfileDefaults[tierName] when the tier is listed", () => {
+    const policy = makeV2Policy(
+      { tierProfileDefaults: { heavy: "deep" } },
+      { defaultProfile: "standard" },
+    );
+    const signals = { ...v2Signals, tierName: "heavy" };
+    const result = selectAdaptiveLevelV2(signals, policy);
+    expect(result.profile).toBe("deep");
+    expect(result.reason).toBe("tier default: heavy");
+  });
+
+  it("falls through to defaultProfile when tierName is not in tierProfileDefaults", () => {
+    const policy = makeV2Policy(
+      { tierProfileDefaults: { heavy: "deep" } },
+      { defaultProfile: "light" },
+    );
+    const signals = { ...v2Signals, tierName: "fast" }; // not in map
+    const result = selectAdaptiveLevelV2(signals, policy);
+    expect(result.profile).toBe("light");
+  });
+
+  it("empty tierProfileDefaults acts as absent", () => {
+    const policy = makeV2Policy({ tierProfileDefaults: {} }, { defaultProfile: "deep" });
+    const result = selectAdaptiveLevelV2(v2Signals, policy);
+    expect(result.profile).toBe("deep"); // falls to defaultProfile
+  });
+
+  // Branch 4: keyword rules — when no keyword matches, falls through to defaultProfile
+  // (the caller's resolveReasoningProfile applies defaultProfile on top of null;
+  // testing selectAdaptiveLevelV2 in isolation shows the direct default behavior)
+  it("returns defaultProfile when no keyword matches", () => {
+    // Implementation: selector returns policy.defaultProfile directly when no rule matches.
+    // The caller's resolveReasoningProfile gets { profile: "standard" } and uses it.
+    const policy = makeV2Policy(
+      { rules: [{ keywords: ["architect"], profile: "deep" }] },
+      { defaultProfile: "standard" },
+    );
+    const result = selectAdaptiveLevelV2(v2Signals, policy);
+    expect(result.profile).toBe("standard"); // falls to defaultProfile
+    expect(result.reason).toBe("default");
+  });
+
+  it("first matching keyword rule returns its profile", () => {
+    const policy = makeV2Policy({
+      rules: [{ keywords: ["refactor"], profile: "deep" }],
+    });
+    const signals = { ...v2Signals, prompt: "refactor this module" };
+    const result = selectAdaptiveLevelV2(signals, policy);
+    expect(result.profile).toBe("deep");
+    expect(result.reason).toMatch(/keyword match/);
+  });
+
+  it("first matching keyword wins over later rules (first-match-wins)", () => {
+    const policy = makeV2Policy({
+      rules: [
+        { keywords: ["refactor"], profile: "deep" },
+        { keywords: ["debug"], profile: "standard" },
+      ],
+    });
+    const signals = { ...v2Signals, prompt: "refactor and debug this" };
+    const result = selectAdaptiveLevelV2(signals, policy);
+    expect(result.profile).toBe("deep"); // first rule wins
+  });
+
+  it("keyword match in description wins", () => {
+    const policy = makeV2Policy({
+      rules: [{ keywords: ["security"], profile: "deep" }],
+    });
+    const signals = {
+      ...v2Signals,
+      prompt: "update the dashboard",
+      description: "add security audit",
+    };
+    const result = selectAdaptiveLevelV2(signals, policy);
+    expect(result.profile).toBe("deep");
+    expect(result.reason).toMatch(/description/);
+  });
+
+  it("excludeKeywords skips a matching rule", () => {
+    const policy = makeV2Policy({
+      defaultProfile: "standard",
+      rules: [{ keywords: ["refactor"], profile: "deep", excludeKeywords: ["urgent"] }],
+    });
+    const signals = { ...v2Signals, prompt: "urgent refactor the auth" };
+    const result = selectAdaptiveLevelV2(signals, policy);
+    expect(result.profile).toBe("standard"); // rule excluded → falls to defaultProfile
+  });
+
+  it("malformed rules (no keywords array) are skipped without throwing", () => {
+    const policy = makeV2Policy({
+      defaultProfile: "standard",
+      rules: [
+        { keywords: undefined as any, profile: "deep" },
+        { keywords: ["refactor"], profile: "deep" },
+      ],
+    });
+    const signals = { ...v2Signals, prompt: "refactor this" };
+    expect(() => selectAdaptiveLevelV2(signals, policy)).not.toThrow();
+    const result = selectAdaptiveLevelV2(signals, policy);
+    expect(result.profile).toBe("deep"); // valid rule matches
+  });
+
+  // Branch 5: catch-all — returns defaultProfile
+  it("falls through to defaultProfile when no rule matches", () => {
+    const policy = makeV2Policy({}, { defaultProfile: "light" });
+    const result = selectAdaptiveLevelV2(v2Signals, policy);
+    expect(result.profile).toBe("light");
+    expect(result.reason).toBe("default");
+  });
+
+  it("returns null when no rule matches AND defaultProfile is absent", () => {
+    const policy = makeV2Policy({}, { defaultProfile: null });
+    const result = selectAdaptiveLevelV2(v2Signals, policy);
+    expect(result.profile).toBeNull();
+    expect(result.reason).toBe("default");
+  });
+
+  it("empty adaptive block → returns defaultProfile (not null)", () => {
+    // {} is truthy — adaptive config exists but has no rules.
+    // Falls through to step 4: returns policy.defaultProfile ?? null = "standard".
+    const policy = makeV2Policy({});
+    const result = selectAdaptiveLevelV2(v2Signals, policy);
+    expect(result.profile).toBe("standard");
+    expect(result.reason).toBe("default");
+  });
+
+  // Decision order: isTrivial → tierProfileDefaults → keyword rules → defaultProfile
+  it("decision order: isTrivial > tierProfileDefaults > keyword > default", () => {
+    const policy = makeV2Policy(
+      {
+        trivialProfile: "light",
+        tierProfileDefaults: { medium: "deep" },
+        rules: [{ keywords: ["refactor"], profile: "deep" }],
+      },
+      { defaultProfile: "standard" },
+    );
+    // isTrivial wins
+    const r1 = selectAdaptiveLevelV2({ ...v2Signals, isTrivial: true }, policy);
+    expect(r1.profile).toBe("light");
+
+    // tierProfileDefaults wins over keyword
+    const r2 = selectAdaptiveLevelV2(
+      { ...v2Signals, isTrivial: false, tierName: "medium" },
+      policy,
+    );
+    expect(r2.profile).toBe("deep"); // tier default wins
+
+    // Keyword wins over default
+    const r3 = selectAdaptiveLevelV2(
+      { ...v2Signals, isTrivial: false, tierName: "fast", prompt: "refactor this" },
+      policy,
+    );
+    expect(r3.profile).toBe("deep"); // keyword wins
+
+    // Default wins when nothing matches
+    const r4 = selectAdaptiveLevelV2({ ...v2Signals, isTrivial: false, tierName: "fast" }, policy);
+    expect(r4.profile).toBe("standard"); // default
+  });
+
+  // Null safety
+  it("is deterministic — same inputs always produce the same profile", () => {
+    const policy = makeV2Policy(
+      { rules: [{ keywords: ["debug"], profile: "standard" }] },
+      { defaultProfile: "deep" },
+    );
+    const signals = { ...v2Signals, prompt: "debug the flaky test" };
+    const r1 = selectAdaptiveLevelV2(signals, policy);
+    const r2 = selectAdaptiveLevelV2(signals, policy);
+    expect(r1.profile).toEqual(r2.profile);
+    expect(r1.reason).toEqual(r2.reason);
+  });
+
+  it("empty prompt + description: falls through to defaultProfile", () => {
+    const policy = makeV2Policy({}, { defaultProfile: "deep" });
+    const signals = { ...v2Signals, prompt: "", description: "" };
+    const result = selectAdaptiveLevelV2(signals, policy);
+    expect(result.profile).toBe("deep");
+  });
+
+  it("tierName does NOT participate in keyword matching", () => {
+    // tierName is "medium" but no rule has "medium" in keywords (v2Signals prompt
+    // is "implement a new feature"). No keyword matches → falls to defaultProfile.
+    const policy = makeV2Policy({
+      rules: [{ keywords: ["medium"], profile: "deep" }],
+    });
+    const signals = { ...v2Signals, tierName: "medium" }; // tier name = "medium"
+    const result = selectAdaptiveLevelV2(signals, policy);
+    expect(result.profile).toBe("standard"); // tierName not in keywords, falls to default
+  });
+});
