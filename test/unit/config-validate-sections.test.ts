@@ -485,6 +485,94 @@ describe("validateReasoningPolicy", () => {
   });
 });
 
+describe("Plan 041 R-3 — user-owned reasoning policy", () => {
+  const valid = {
+    reasoningPolicy: {
+      mode: "adaptive",
+      profiles: ["minimal", "deep"],
+      defaultProfile: "minimal",
+      adaptive: {
+        trivialProfile: null,
+        tierProfileDefaults: { fast: "minimal" },
+        rules: [{ keywords: ["debug"], profile: "deep" }],
+      },
+    },
+  };
+
+  it("accepts a registered profile policy and profile consequences", () => {
+    expect(() => validateReasoningPolicy(valid)).not.toThrow();
+  });
+
+  it.each([
+    ["duplicate profiles", { profiles: ["minimal", "minimal"] }],
+    ["unknown default", { profiles: ["minimal"], defaultProfile: "deep" }],
+    [
+      "unknown rule profile",
+      { profiles: ["minimal"], adaptive: { rules: [{ keywords: ["x"], profile: "deep" }] } },
+    ],
+  ])("rejects %s", (_label, patch) => {
+    expect(() =>
+      validateReasoningPolicy({ reasoningPolicy: { ...valid.reasoningPolicy, ...patch } }),
+    ).toThrow();
+  });
+});
+
+describe("Plan 041 R-3 — reasoningControl validation", () => {
+  const tier = (control: Record<string, unknown>) => ({
+    model: "provider/model",
+    description: "controlled tier",
+    whenToUse: ["tests"],
+    reasoningControl: control,
+  });
+  const valid = {
+    channel: "variant",
+    levels: ["low", "high"],
+    profileMap: { minimal: "low", max: "high" },
+    maxBumps: 1,
+  };
+
+  it("accepts a complete string reasoning control", () => {
+    expect(() => validateTier("preset", "medium", tier(valid))).not.toThrow();
+  });
+
+  it.each([
+    ["invalid channel", { ...valid, channel: "unsupported" }],
+    ["empty levels", { ...valid, levels: [] }],
+    ["duplicate levels", { ...valid, levels: ["low", "low"] }],
+    ["orphan profile map value", { ...valid, profileMap: { minimal: "missing" } }],
+    ["blank profile map key", { ...valid, profileMap: { "": "low" } }],
+    ["whitespace profile map key", { ...valid, profileMap: { "   ": "low" } }],
+    ["non-integer maxBumps", { ...valid, maxBumps: 0.5 }],
+    ["maxBumps above ladder", { ...valid, maxBumps: 2 }],
+    ["negative maxBumps", { ...valid, maxBumps: -1 }],
+  ])("rejects %s", (_label, control) => {
+    expect(() => validateTier("preset", "medium", tier(control))).toThrow();
+  });
+
+  it.each(["", "   "])('reports blank profile map key "%s" using the section convention', (key) => {
+    expect(() =>
+      validateTier("preset", "medium", tier({ ...valid, profileMap: { [key]: "low" } })),
+    ).toThrow(
+      "tiers.json: 'preset.medium.reasoningControl'.profileMap keys must be non-empty strings",
+    );
+  });
+
+  it("accepts ascending non-negative budget levels", () => {
+    expect(() =>
+      validateTier(
+        "preset",
+        "medium",
+        tier({
+          channel: "thinking.budgetTokens",
+          levels: [1024, 4096],
+          profileMap: { minimal: 1024, max: 4096 },
+          maxBumps: 1,
+        }),
+      ),
+    ).not.toThrow();
+  });
+});
+
 describe("validateReasoningPolicyMode", () => {
   for (const mode of ["static", "manual", "adaptive"]) {
     it(`accepts mode '${mode}'`, () => {

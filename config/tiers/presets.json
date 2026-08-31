@@ -19,7 +19,7 @@
         "costRatio": 2,
         "description": "Patcher: surgical single-file edits from a complete spec. Simple fixes, config tweaks, localized refactoring. Escalates on cross-file scope growth.",
         "steps": 40,
-        "capability": { "kind": "discrete", "field": "variant", "levels": ["low", "medium", "high"] },
+        "reasoningControl": { "channel": "variant", "levels": ["low", "medium", "high"], "profileMap": { "minimal": "low", "normal": "medium", "elevated": "high", "max": "high" }, "maxBumps": 0 },
         "whenToUse": [
           "Simple edits and small fixes within one file",
           "Config tweaks and parameter changes",
@@ -33,7 +33,7 @@
         "costRatio": 5,
         "description": "Builder: standard implementation. Features, refactoring, tests, code review, build-fixes. Matches existing patterns; runs targeted verification only.",
         "steps": 50,
-        "capability": { "kind": "binary", "field": "variant", "elevated": "max" },
+        "reasoningControl": { "channel": "variant", "levels": ["baseline", "max"], "profileMap": { "minimal": "baseline", "normal": "baseline", "elevated": "max", "max": "max" }, "maxBumps": 0 },
         "whenToUse": [
           "Feature implementation (multi-file allowed)",
           "Refactoring",
@@ -49,7 +49,7 @@
         "costRatio": 10,
         "description": "Lead Investigator: deep single-system forensics, advisory. Root-cause isolation, performance profiling, one-module review. Advises; spans systems to @heavy.",
         "steps": 80,
-        "capability": { "kind": "binary", "field": "variant", "elevated": "max" },
+        "reasoningControl": { "channel": "variant", "levels": ["baseline", "max"], "profileMap": { "minimal": "baseline", "normal": "baseline", "elevated": "max", "max": "max" }, "maxBumps": 0 },
         "whenToUse": [
           "Deep single-system debugging",
           "Complex bug isolation in one module/package",
@@ -63,7 +63,7 @@
         "costRatio": 20,
         "description": "Staff Architect: senior advisory. Architecture, security review, multi-system tradeoffs, migration strategy, RCA after ≥2 prior failures. No self-recon.",
         "steps": 120,
-        "capability": { "kind": "binary", "field": "variant", "elevated": "max" },
+        "reasoningControl": { "channel": "variant", "levels": ["baseline", "max"], "profileMap": { "minimal": "baseline", "normal": "baseline", "elevated": "max", "max": "max" }, "maxBumps": 0 },
         "whenToUse": [
           "Architecture decisions",
           "Complex debugging after ≥2 prior failures",
@@ -93,7 +93,7 @@
         "costRatio": 2,
         "description": "Patcher: surgical single-file edits from a complete spec. Simple fixes, config tweaks, localized refactoring. Escalates on cross-file scope growth.",
         "steps": 40,
-        "capability": { "kind": "discrete", "field": "variant", "levels": ["low", "medium", "high"] },
+        "reasoningControl": { "channel": "variant", "levels": ["low", "medium", "high"], "profileMap": { "minimal": "low", "normal": "medium", "elevated": "high", "max": "high" }, "maxBumps": 0 },
         "whenToUse": [
           "Simple edits and small fixes within one file",
           "Config tweaks and parameter changes",
@@ -107,7 +107,7 @@
         "costRatio": 5,
         "description": "Builder: standard implementation. Features, refactoring, tests, code review, build-fixes. Matches existing patterns; runs targeted verification only.",
         "steps": 50,
-        "capability": { "kind": "discrete", "field": "variant", "levels": ["low", "medium", "high"] },
+        "reasoningControl": { "channel": "variant", "levels": ["low", "medium", "high"], "profileMap": { "minimal": "low", "normal": "medium", "elevated": "high", "max": "high" }, "maxBumps": 0 },
         "whenToUse": [
           "Feature implementation (multi-file allowed)",
           "Refactoring",
@@ -123,7 +123,7 @@
         "costRatio": 10,
         "description": "Lead Investigator: deep single-system forensics, advisory. Root-cause isolation, performance profiling, one-module review. Advises; spans systems to @heavy.",
         "steps": 80,
-        "capability": { "kind": "discrete", "field": "variant", "levels": ["low", "medium", "high"] },
+        "reasoningControl": { "channel": "variant", "levels": ["low", "medium", "high"], "profileMap": { "minimal": "low", "normal": "medium", "elevated": "high", "max": "high" }, "maxBumps": 0 },
         "whenToUse": [
           "Deep single-system debugging",
           "Complex bug isolation in one module/package",
@@ -137,7 +137,7 @@
         "costRatio": 20,
         "description": "Staff Architect: senior advisory. Architecture, security review, multi-system tradeoffs, migration strategy, RCA after ≥2 prior failures. No self-recon.",
         "steps": 120,
-        "capability": { "kind": "discrete", "field": "variant", "levels": ["low", "medium", "high", "xhigh"] },
+        "reasoningControl": { "channel": "variant", "levels": ["low", "medium", "high", "xhigh"], "profileMap": { "minimal": "low", "normal": "medium", "elevated": "high", "max": "xhigh" }, "maxBumps": 0 },
         "whenToUse": [
           "Architecture decisions",
           "Complex debugging after ≥2 prior failures",
@@ -209,7 +209,7 @@
         "costRatio": 20,
         "description": "Staff Architect: senior advisory. Architecture, security review, multi-system tradeoffs, migration strategy, RCA after ≥2 prior failures. No self-recon.",
         "steps": 120,
-        "capability": { "kind": "binary", "field": "variant", "elevated": "thinking" },
+        "reasoningControl": { "channel": "variant", "levels": ["baseline", "thinking"], "profileMap": { "minimal": "baseline", "normal": "baseline", "elevated": "thinking", "max": "thinking" }, "maxBumps": 0 },
         "whenToUse": [
           "Architecture decisions",
           "Complex debugging after ≥2 prior failures",
@@ -324,7 +324,7 @@
         "costRatio": 5,
         "description": "Builder: standard implementation. Features, refactoring, tests, code review, build-fixes. Matches existing patterns; runs targeted verification only.",
         "steps": 50,
-        "capability": { "kind": "discrete", "field": "variant", "levels": ["low", "medium", "high"] },
+        "reasoningControl": { "channel": "variant", "levels": ["low", "medium", "high"], "profileMap": { "minimal": "low", "normal": "medium", "elevated": "high", "max": "high" }, "maxBumps": 0 },
         "whenToUse": [
           "Feature implementation (multi-file allowed)",
           "Refactoring",
@@ -340,7 +340,7 @@
         "costRatio": 10,
         "description": "Lead Investigator: deep single-system forensics, advisory. Root-cause isolation, performance profiling, one-module review. Advises; spans systems to @heavy.",
         "steps": 80,
-        "capability": { "kind": "discrete", "field": "variant", "levels": ["low", "medium", "high"] },
+        "reasoningControl": { "channel": "variant", "levels": ["low", "medium", "high"], "profileMap": { "minimal": "low", "normal": "medium", "elevated": "high", "max": "high" }, "maxBumps": 0 },
         "whenToUse": [
           "Deep single-system debugging",
           "Complex bug isolation in one module/package",
@@ -354,7 +354,7 @@
         "costRatio": 20,
         "description": "Staff Architect: senior advisory. Architecture, security review, multi-system tradeoffs, migration strategy, RCA after ≥2 prior failures. No self-recon.",
         "steps": 120,
-        "capability": { "kind": "binary", "field": "variant", "elevated": "max" },
+        "reasoningControl": { "channel": "variant", "levels": ["baseline", "max"], "profileMap": { "minimal": "baseline", "normal": "baseline", "elevated": "max", "max": "max" }, "maxBumps": 0 },
         "whenToUse": [
           "Architecture decisions",
           "Complex debugging after ≥2 prior failures",
@@ -385,7 +385,12 @@
         "description": "Patcher: surgical single-file edits from a complete spec. Simple fixes, config tweaks, localized refactoring. Escalates on cross-file scope growth.",
         "steps": 40,
         "reasoning": { "effort": "medium" },
-        "capability": { "kind": "discrete", "field": "reasoning.effort", "levels": ["low", "medium", "high", "xhigh", "max"] },
+        "reasoningControl": {
+          "channel": "reasoning.effort",
+          "levels": ["low", "medium", "high", "xhigh", "max"],
+          "profileMap": { "minimal": "low", "normal": "medium", "elevated": "high", "max": "max" },
+          "maxBumps": 0
+        },
         "whenToUse": [
           "Simple edits and small fixes within one file",
           "Config tweaks and parameter changes",
@@ -413,7 +418,12 @@
         "costRatio": 10,
         "description": "Lead Investigator: deep single-system forensics, advisory. Root-cause isolation, performance profiling, one-module review. Advises; spans systems to @heavy.",
         "steps": 80,
-        "capability": { "kind": "binary", "field": "variant", "baseline": "none", "elevated": "thinking" },
+        "reasoningControl": {
+          "channel": "variant",
+          "levels": ["none", "thinking"],
+          "profileMap": { "minimal": "none", "normal": "none", "elevated": "thinking", "max": "thinking" },
+          "maxBumps": 0
+        },
         "whenToUse": [
           "Deep single-system debugging",
           "Complex bug isolation in one module/package",
@@ -430,7 +440,12 @@
           "effort": "medium",
           "summary": "detailed"
         },
-        "capability": { "kind": "discrete", "field": "reasoning.effort", "levels": ["low", "medium", "high", "xhigh"] },
+        "reasoningControl": {
+          "channel": "reasoning.effort",
+          "levels": ["low", "medium", "high", "xhigh"],
+          "profileMap": { "minimal": "low", "normal": "medium", "elevated": "high", "max": "xhigh" },
+          "maxBumps": 0
+        },
         "whenToUse": [
           "Architecture decisions",
           "Complex debugging after ≥2 prior failures",

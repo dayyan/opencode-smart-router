@@ -23,23 +23,24 @@
   "defaultTier": "medium",
   "reasoningPolicy": {
     "mode": "manual",
+    "profiles": ["minimal", "normal", "elevated", "max"],
+    "defaultProfile": "normal",
     "surfaceLimits": false,
     "adaptive": {
-      "trivialLevel": null,
-      "defaultLevel": "normal",
-      "keywordRules": [
+      "trivialProfile": null,
+      "rules": [
         {
           "keywords": ["format", "lint", "rename", "sort import", "bump version", "typo"],
-          "level": "minimal",
+          "profile": "minimal",
           "excludeKeywords": ["refactor", "architect", "redesign"]
         },
         {
           "keywords": ["root cause", "rca", "security audit", "architecture redesign", "architect", "data migration"],
-          "level": "max"
+          "profile": "max"
         },
         {
           "keywords": ["refactor", "security", "debug", "diagnose", "investigate", "performance", "profiling", "concurrency", "race condition", "optimize", "optimization", "memory leak", "bottleneck"],
-          "level": "elevated"
+          "profile": "elevated"
         }
       ],
       "surfaceDecision": false

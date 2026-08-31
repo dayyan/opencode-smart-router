@@ -100,15 +100,20 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
               variant: "xhigh",
               description: "heavy tier for plan 012 test",
               whenToUse: ["write"],
-              capability: {
-                kind: "discrete",
-                field: "variant",
+              reasoningControl: {
+                channel: "variant",
                 levels: ["low", "medium", "high", "xhigh"],
+                profileMap: { minimal: "low", normal: "medium", elevated: "high", max: "xhigh" },
+                maxBumps: 0,
               },
             },
           },
         },
-        reasoningPolicy: { mode: "manual" },
+        reasoningPolicy: {
+          mode: "manual",
+          profiles: ["minimal", "normal", "elevated", "max"],
+          defaultProfile: "normal",
+        },
       }),
       "utf-8",
     );
@@ -144,8 +149,8 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
   //
   // Uses the bundled openai preset's `heavy` tier:
   //   - baseline: variant "xhigh"
-  //   - capability: discrete, levels ['low','medium','high','xhigh']
-  //   - override "elevated" → translateLevel → variant "high"
+  //   - reasoningControl: discrete, levels ['low','medium','high','xhigh']
+  //   - override "elevated" → profileMap → variant "high"
   // So `agentDef.variant` flips from "xhigh" to "high" during dispatch and
   // returns to "xhigh" after the after-hook restores the baseline.
   // -------------------------------------------------------------------------
@@ -217,10 +222,11 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
               variant: "xhigh",
               description: "heavy tier for plan 012 test",
               whenToUse: ["write"],
-              capability: {
-                kind: "discrete",
-                field: "variant",
+              reasoningControl: {
+                channel: "variant",
                 levels: ["low", "medium", "high", "xhigh"],
+                profileMap: { minimal: "low", normal: "medium", elevated: "high", max: "xhigh" },
+                maxBumps: 0,
               },
             },
           },
