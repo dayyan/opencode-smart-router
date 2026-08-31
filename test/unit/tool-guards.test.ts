@@ -182,7 +182,27 @@ describe("applyOrchestratorReasoningPatch", () => {
     //   - reasoning policy mode "manual" + override "elevated" triggers a patch
     const { ctx } = makeGuardHarness({
       configOverrides: {
-        reasoningPolicy: { mode: "manual" },
+        reasoningPolicy: {
+          mode: "manual",
+          profiles: ["p1", "p2"],
+          defaultProfile: "p1",
+        } as any,
+        presets: {
+          default: {
+            fast: {
+              model: "anthropic/claude-haiku-4-5",
+              description: "fast",
+              whenToUse: [],
+              variant: "low",
+              reasoningControl: {
+                channel: "variant",
+                levels: ["low", "thinking"],
+                profileMap: { p1: "low", p2: "thinking" },
+                maxBumps: 0,
+              },
+            } as TierConfig,
+          },
+        },
       },
     });
     const baseline = {
@@ -197,7 +217,7 @@ describe("applyOrchestratorReasoningPatch", () => {
       fast: agentDef,
     };
     ctx.reasoningStore.setBaseline("fast", structuredClone(baseline));
-    ctx.reasoningStore.setOverride("sid-orch", "elevated");
+    ctx.reasoningStore.setOverride("sid-orch", "p2" as ReasoningLevel);
 
     const consumed = await applyOrchestratorReasoningPatch({
       ctx,

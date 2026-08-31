@@ -1,8 +1,7 @@
 /**
  * test/integration/reasoning-runtime.test.ts
  *
- * Drives the REAL plugin factory end-to-end to prove the operator-visible
- * reasoning patch path:
+ * Drives the REAL plugin factory end-to-end to prove the reasoning patch path:
  *
  *   1. /model-router-reasoning elevated (with mode: "manual") writes the override.
  *   2. The next orchestrator `task` dispatch mutates the target tier's
@@ -170,16 +169,13 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
     const baselineVariant = tierAgentDef.variant;
     expect(baselineVariant).toBe("xhigh");
 
-    // Drive /model-router-reasoning elevated to write the override onto the store.
     const orchSid = "orch-sid-plan-012";
+    const cmdOutput: { parts: any[] } = { parts: [] };
     await hooks["command.execute.before"](
       { command: "model-router-reasoning", arguments: "elevated", sessionID: orchSid },
-      { parts: [] },
+      cmdOutput,
     );
-
-    // Sanity: the override landed in the store (the command path is the
-    // one real operators use — this is what /reasoning actually does).
-    // We assert the patch was applied by checking the agent def mutated.
+    expect(cmdOutput.parts[0].text).toContain("Reasoning override set to **elevated**");
 
     // Now simulate the orchestrator task dispatch.
     await hooks["tool.execute.before"](
@@ -187,9 +183,7 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
       { args: { subagent_type: tierName } },
     );
 
-    // The patch must have flipped the variant to "high" (translateLevel
-    // maps `elevated` onto the discrete ladder's 3rd position from the top
-    // — levels length 4, target rank 2, rawIdx = round(2/3 * 3) = 2 → "high").
+    // The patch must have flipped the variant to "high".
     expect(opencodeConfig.agent[tierName].variant).toBe("high");
     expect(opencodeConfig.agent[tierName].variant).not.toBe(baselineVariant);
 
@@ -244,8 +238,6 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
     const baselineVariant = opencodeConfig.agent[tierName].variant;
     expect(baselineVariant).toBe("xhigh");
 
-    // /model-router-reasoning in static mode writes the override but the runtime
-    // does not apply it at task dispatch (policy mode is a runtime concern).
     const orchSid = "orch-sid-static";
     const cmdOutput: { parts: any[] } = { parts: [] };
     await hooks["command.execute.before"](
@@ -254,8 +246,7 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
     );
     expect(cmdOutput.parts[0].text).toContain("Reasoning override set to **elevated**");
 
-    // Dispatch a task — the patch block must be a no-op because resolveReasoningOverride
-    // returns null for static mode.
+    // Dispatch a task — static mode must leave the agent definition untouched.
     await hooks["tool.execute.before"](
       { tool: "task", sessionID: orchSid, args: { subagent_type: tierName } },
       { args: { subagent_type: tierName } },
