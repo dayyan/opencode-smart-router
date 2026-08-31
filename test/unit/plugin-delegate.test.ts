@@ -2547,13 +2547,13 @@ const makeReasoningCfg = (overrides?: {
   agent: Record<string, Record<string, unknown>>;
 } => {
   const ladder = overrides?.ladder ?? ["low", "medium", "high", "xhigh", "max"];
+  const controlLevels = ladder as [string, ...string[]];
   const maxBumps = overrides?.maxLevelBumpsPerTier ?? 2;
   const maxAttempts = overrides?.maxAttemptsPerTier ?? 1;
 
-  // variant MUST be set on each tier so levelIndexForVariant correctly resolves
-  // the tier's ladder index from the explicit capability. Without variant,
-  // levelIndexForVariant(cap, undefined) hits the discrete branch's
-  // indexOf("")→-1→undefined→defaults to 0, placing all tiers at index 0.
+  // Each tier maps the single fixture profile to its configured starting
+  // native level. The registry and bridge are deliberately opaque to runtime
+  // code; the tier control owns the native starting index.
   const cfg: RouterConfig = {
     activePreset: "default",
     defaultTier: "medium",
@@ -2564,40 +2564,65 @@ const makeReasoningCfg = (overrides?: {
           description: "low",
           whenToUse: [],
           costRatio: 1,
-          variant: "low",
-          capability: { kind: "discrete", field: "reasoning.effort", levels: ladder },
+          reasoning: { effort: "low" },
+          reasoningControl: {
+            channel: "reasoning.effort",
+            levels: controlLevels,
+            profileMap: { p1: "low" },
+            maxBumps,
+          },
         },
         medium: {
           model: "anthropic/claude-sonnet-4",
           description: "medium",
           whenToUse: [],
           costRatio: 3,
-          variant: "medium",
-          capability: { kind: "discrete", field: "reasoning.effort", levels: ladder },
+          reasoning: { effort: "medium" },
+          reasoningControl: {
+            channel: "reasoning.effort",
+            levels: controlLevels,
+            profileMap: { p1: "medium" },
+            maxBumps,
+          },
         },
         high: {
           model: "anthropic/claude-opus-4",
           description: "high",
           whenToUse: [],
           costRatio: 9,
-          variant: "high",
-          capability: { kind: "discrete", field: "reasoning.effort", levels: ladder },
+          reasoning: { effort: "high" },
+          reasoningControl: {
+            channel: "reasoning.effort",
+            levels: controlLevels,
+            profileMap: { p1: "high" },
+            maxBumps,
+          },
         },
         xhigh: {
           model: "anthropic/claude-opus-4",
           description: "xhigh",
           whenToUse: [],
           costRatio: 12,
-          variant: "xhigh",
-          capability: { kind: "discrete", field: "reasoning.effort", levels: ladder },
+          reasoning: { effort: "xhigh" },
+          reasoningControl: {
+            channel: "reasoning.effort",
+            levels: controlLevels,
+            profileMap: { p1: "xhigh" },
+            maxBumps,
+          },
         },
         max: {
           model: "anthropic/claude-opus-4",
           description: "max",
           whenToUse: [],
           costRatio: 15,
-          variant: "max",
-          capability: { kind: "discrete", field: "reasoning.effort", levels: ladder },
+          reasoning: { effort: "max" },
+          reasoningControl: {
+            channel: "reasoning.effort",
+            levels: controlLevels,
+            profileMap: { p1: "max" },
+            maxBumps,
+          },
         },
       },
     },
@@ -2608,10 +2633,14 @@ const makeReasoningCfg = (overrides?: {
         ladder,
         maxAttemptsPerTier: maxAttempts,
         maxTotalAttempts: 20,
-        reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: maxBumps },
       },
     },
-  } as RouterConfig;
+    reasoningPolicy: {
+      mode: "manual",
+      profiles: ["p1"],
+      defaultProfile: "p1",
+    } as any,
+  } as unknown as RouterConfig;
 
   // Build opencodeConfig.agent so the per-attempt patch has live defs to mutate.
   const agent: Record<string, Record<string, unknown>> = {
@@ -2829,14 +2858,12 @@ describe("executeDelegate — reasoning-level-escalation (WU-7 T-5/T-6 none capa
             description: "none",
             whenToUse: [],
             costRatio: 1,
-            // No capability field → inferCapability returns { kind: "none" }.
           },
           high: {
             model: "anthropic/claude-opus-4",
             description: "high",
             whenToUse: [],
             costRatio: 9,
-            capability: { kind: "discrete", field: "reasoning.effort", levels: ["low", "high"] },
           },
         },
       },
@@ -2847,7 +2874,6 @@ describe("executeDelegate — reasoning-level-escalation (WU-7 T-5/T-6 none capa
           ladder: ["noneTier", "high"],
           maxAttemptsPerTier: 1,
           maxTotalAttempts: 10,
-          reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 },
         },
       },
     } as RouterConfig;
@@ -3084,13 +3110,10 @@ describe("executeDelegate — reasoning-level-escalation (WU-7 R-2 prompt-seam w
 
     const recordedEfforts: Array<{ tier: string; effort: unknown }> = [];
 
-    // 5 accepts: FAIL1→bump, FAIL2→bump, FAIL3→retry@xhigh, FAIL4→escalate, PASS5.
+    // D-3: FAIL1→bump(high), FAIL2→bump(xhigh), FAIL3→bumpExhausted@top→escalate(max),
+    // FAIL4→give-up (no bumps on max, no next tier). This mock sequence tests R-2
+    // on attempts 2 and 3 (high, xhigh) before D-3 exhaustion pattern takes over.
     acceptMock
-      .mockResolvedValueOnce({
-        accepted: false,
-        verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
-        dodSource: "inferred",
-      })
       .mockResolvedValueOnce({
         accepted: false,
         verdict: { pass: false, method: "deterministic", reasons: ["fail"] },
@@ -3183,10 +3206,11 @@ describe("executeDelegate — reasoning.effort without variant starts at configu
             costRatio: 1,
             // NOTE: no `variant` field — starting level must come from reasoning.effort
             reasoning: { effort: "medium" },
-            capability: {
-              kind: "discrete",
-              field: "reasoning.effort",
+            reasoningControl: {
+              channel: "reasoning.effort",
               levels: ["low", "medium", "high", "xhigh"],
+              profileMap: { p1: "medium" },
+              maxBumps: 2,
             },
           },
         },
@@ -3199,8 +3223,12 @@ describe("executeDelegate — reasoning.effort without variant starts at configu
           maxAttemptsPerTier: 4,
           maxTotalAttempts: 20,
           costCeiling: { multiple: 100 },
-          reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 },
         },
+      },
+      reasoningPolicy: {
+        mode: "manual",
+        profiles: ["p1"],
+        defaultProfile: "p1",
       },
     } as RouterConfig;
 
@@ -3265,8 +3293,9 @@ describe("executeDelegate — reasoning.effort without variant starts at configu
 
     const out = await executeDelegate(ctx, { task: "reasoning effort start level", tier: "heavy" });
 
-    // With maxLevelBumpsPerTier=2, we get: FAIL→bump(high), FAIL→bump(xhigh),
-    // FAIL→stay@xhigh (can't bump higher), FAIL→give-up (exhausted bumps, no next tier).
+    // D-3 behavior with maxLevelBumpsPerTier=2: FAIL→bump(high), FAIL→bump(xhigh),
+    // FAIL→bumpExhausted@top → escalate directly (no same-level retry), give-up.
+    // Only 3 recorded efforts (no retry at top).
     expect(out).toContain("unmet");
     expect(out).toContain("already at top of ladder");
 
@@ -3278,8 +3307,8 @@ describe("executeDelegate — reasoning.effort without variant starts at configu
     expect(recordedEfforts[1]).toBe("high");
     // Then bumps to xhigh on third attempt (top of ladder).
     expect(recordedEfforts[2]).toBe("xhigh");
-    // Fourth failure stays at xhigh — does NOT wrap to low or reset to medium.
-    expect(recordedEfforts[3]).toBe("xhigh");
+    // D-3: fourth failure does not occur — bumpExhausted@top triggers immediate escalate/give-up.
+    expect(recordedEfforts[3]).toBeUndefined();
 
     // Baselines are restored after loop.
     expect(agent.heavy.options).toEqual({ reasoning_effort: "medium" });
@@ -3468,11 +3497,6 @@ describe("executeDelegate — reasoning.effort + empty reasoning block falls bac
             // Variant IS set; reasoning is intentionally an empty object.
             variant: "high",
             reasoning: {}, // empty block — must NOT override variant
-            capability: {
-              kind: "discrete",
-              field: "reasoning.effort",
-              levels: ["low", "medium", "high", "xhigh"],
-            },
           },
         },
       },
@@ -3484,7 +3508,6 @@ describe("executeDelegate — reasoning.effort + empty reasoning block falls bac
           maxAttemptsPerTier: 4,
           maxTotalAttempts: 20,
           costCeiling: { multiple: 100 },
-          reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 },
         },
       },
     } as RouterConfig;

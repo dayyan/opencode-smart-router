@@ -24,13 +24,9 @@ import {
   recordAttempt,
 } from "../escalate/ladder";
 import { scrubText } from "../guard/scrub";
-import type { ReasoningCapability } from "../reasoning/capability.js";
-import { inferCapability } from "../reasoning/capability.js";
-import {
-  capabilityLadderLength,
-  levelIndexForVariant,
-  translateAtIndex,
-} from "../reasoning/translate.js";
+import { normalizeSignalText } from "../reasoning/match.js";
+import { resolveReasoningProfile } from "../reasoning/policy.js";
+import { patchAtIndex, resolveControlPatch } from "../reasoning/translate.js";
 import { applyReasoningPatch, restoreAgentBaseline } from "../router/agents.js";
 import type { Preset } from "../router/config";
 import { getActiveTiers } from "../router/protocol";
@@ -181,28 +177,43 @@ export const executeDelegate = async (
     const tiersForCost: Preset = getActiveTiers(activeCfg);
 
     // -------------------------------------------------------------------------
-    // enterTier — resolve levelIndex + reasoningLadderLen from capability.
+    // enterTier — resolve levelIndex + reasoningLadderLen + tierMaxBumps from
+    // the selected profile and this tier's user-owned reasoning control.
     // Function-scope so concurrent delegate invocations never share state.
     // -------------------------------------------------------------------------
     type LadderState = ReturnType<typeof newLadderState>;
     const enterTier = (s: LadderState, t: string): LadderState => {
       const tierCfg = activeCfg.presets?.[activeCfg.activePreset]?.[t];
       if (!tierCfg) return s;
-      const cap: ReasoningCapability = tierCfg.capability ?? inferCapability(tierCfg);
-      // For discrete/reasoning.effort tiers, the configured starting level comes
-      // from tierCfg.reasoning.effort (the explicit effort setting). Fall back to
-      // tierCfg.variant for backward compat when reasoning is not set.
-      // An empty reasoning block ({}) has no effort — fall back to variant (the
-      // object-truthy check used before 039 mis-seeded such tiers at index 0).
-      const variant =
-        cap.kind === "discrete" &&
-        cap.field === "reasoning.effort" &&
-        tierCfg.reasoning?.effort != null
-          ? tierCfg.reasoning.effort
-          : tierCfg.variant;
-      const levelIndex = levelIndexForVariant(cap, variant) ?? 0;
-      const reasoningLadderLen = capabilityLadderLength(cap);
-      return { ...s, levelIndex, reasoningLadderLen };
+      const control = tierCfg.reasoningControl;
+      const reasoningPolicy = activeCfg.reasoningPolicy as Parameters<
+        typeof resolveReasoningProfile
+      >[0];
+      let isTrivial = false;
+      try {
+        isTrivial = parentSessionID ? ctx.sessionStore.isTrivial(parentSessionID) : false;
+      } catch {
+        isTrivial = false;
+      }
+      const resolution = resolveReasoningProfile(
+        reasoningPolicy,
+        ctx.reasoningStore.getOverride(parentSessionID ?? ""),
+        {
+          prompt: normalizeSignalText(args.task),
+          description: "",
+          tierName: t,
+          isTrivial,
+        },
+      );
+      if (resolution.overrideUnknown) {
+        log.warn({ event: "reasoning.override_unknown_profile", tier: t });
+      }
+      const resolved =
+        resolution.profile == null ? null : resolveControlPatch(control, resolution.profile);
+      const levelIndex = resolved?.levelIndex ?? 0;
+      const reasoningLadderLen = resolved ? (control?.levels.length ?? 0) : 0;
+      const tierMaxBumps = resolved ? (control?.maxBumps ?? 0) : 0;
+      return { ...s, levelIndex, reasoningLadderLen, tierMaxBumps };
     };
 
     let state = newLadderState(initialTier, policy);
@@ -385,9 +396,10 @@ export const executeDelegate = async (
 
           // Per-attempt reasoning patch — snapshot baseline once per tier, then
           // apply the reasoning-level patch for the current ladder rung.
+          const tierCfg = activeCfg.presets?.[activeCfg.activePreset]?.[tier];
           const agentDef =
             state.reasoningLadderLen > 0 ? ctx.opencodeConfig?.agent?.[tier] : undefined;
-          if (agentDef && state.reasoningLadderLen > 0) {
+          if (agentDef && tierCfg?.reasoningControl && state.reasoningLadderLen > 0) {
             patchOwnerKey ??= `delegate:${producerSid}`;
             if (!ctx.reasoningStore.acquireTierOwner(tier, patchOwnerKey)) {
               log.debug({
@@ -404,22 +416,8 @@ export const executeDelegate = async (
               if (!tierBaselines.has(tier)) {
                 tierBaselines.set(tier, { ...agentDef });
               }
-              // Apply reasoning patch for the current level.
-              const tierCfg = activeCfg.presets?.[activeCfg.activePreset]?.[tier];
-              // Prefer explicit capability; fall back to inference from tier fields.
-              // The non-null `tierCfg` branch is always taken when agentDef is set
-              // because agentDef is sourced from opencodeConfig.agent[tier] which
-              // only exists when tierCfg was used to build it. The else branch is
-              // purely for TypeScript narrowing — tierCfg would be defined at this
-              // point but the type-system needs the explicit guard.
-              const cap: ReasoningCapability = (() => {
-                if (tierCfg) {
-                  return tierCfg.capability ?? inferCapability(tierCfg);
-                }
-                const unsafe = activeCfg.presets?.[activeCfg.activePreset]?.[tier];
-                return unsafe ? inferCapability(unsafe) : { kind: "none" };
-              })();
-              const patch = translateAtIndex(cap, state.levelIndex);
+              // Apply the selected control's current native level.
+              const patch = patchAtIndex(tierCfg.reasoningControl, state.levelIndex);
               if (patch) {
                 applyReasoningPatch(agentDef, patch);
               }

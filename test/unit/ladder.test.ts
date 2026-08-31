@@ -3,6 +3,7 @@ import {
   advance,
   buildEscalatePolicy,
   buildLadderForcingMessage,
+  bumpExhausted,
   canBumpReasoning,
   type EscalatePolicy,
   formatLadderScorecard,
@@ -38,10 +39,68 @@ const makePolicy = (overrides: Partial<EscalatePolicy> = {}): EscalatePolicy => 
     maxAttemptsPerTier: 1,
     maxTotalAttempts: 4,
     costMultiple: null,
-    reasoningEscalation: { enabled: false, maxLevelBumpsPerTier: 2 },
     ...overrides,
   };
 };
+
+const exhaustionMatrix = Array.from({ length: 5 }, (_, lengthOffset) => {
+  const levelsLength = lengthOffset + 1;
+  return Array.from({ length: levelsLength }, (_, maxBumps) =>
+    Array.from({ length: maxBumps + 1 }, (_, bumpsThisTier) =>
+      Array.from({ length: levelsLength }, (_, levelIndex) =>
+        (["verification_fail", "retryable_error"] as const).map((cause) => ({
+          levelsLength,
+          maxBumps,
+          bumpsThisTier,
+          levelIndex,
+          cause,
+        })),
+      ),
+    ),
+  );
+}).flat(4);
+
+describe("D-3 exhaustive bump exhaustion matrix", () => {
+  it.each(exhaustionMatrix)(
+    "levels=$levelsLength maxBumps=$maxBumps bumps=$bumpsThisTier index=$levelIndex cause=$cause",
+    ({ levelsLength, maxBumps, bumpsThisTier, levelIndex, cause }) => {
+      const state = makeState({
+        reasoningLadderLen: levelsLength,
+        tierMaxBumps: maxBumps,
+        bumpsThisTier,
+        levelIndex,
+      });
+      const verdict: LadderVerdict = { pass: false, cause };
+      const action = nextAction(state, verdict, makePolicy());
+
+      if (cause === "retryable_error") {
+        expect(action.action).toBe("retry");
+        expect(bumpExhausted(state, verdict)).toBe(false);
+        return;
+      }
+
+      const hasRoom = maxBumps > 0 && bumpsThisTier < maxBumps && levelIndex < levelsLength - 1;
+      expect(action.action).toBe(hasRoom ? "bump" : maxBumps > 0 ? "escalate" : "retry");
+      expect(bumpExhausted(state, verdict)).toBe(maxBumps > 0 && !hasRoom);
+    },
+  );
+
+  it.each([1, 2, 3, 4, 5])("uses effective bump room for %s levels", (levelsLength) => {
+    for (let maxBumps = 0; maxBumps < levelsLength; maxBumps++) {
+      for (let startIndex = 0; startIndex < levelsLength; startIndex++) {
+        let room = 0;
+        let index = startIndex;
+        let bumps = 0;
+        while (bumps < maxBumps && index < levelsLength - 1) {
+          room++;
+          bumps++;
+          index++;
+        }
+        expect(room).toBe(Math.min(maxBumps, levelsLength - 1 - startIndex));
+      }
+    }
+  });
+});
 
 const makeState = (overrides: Partial<LadderState> = {}): LadderState => {
   const base: LadderState = {
@@ -54,6 +113,7 @@ const makeState = (overrides: Partial<LadderState> = {}): LadderState => {
     levelIndex: 0,
     bumpsThisTier: 0,
     reasoningLadderLen: 0,
+    tierMaxBumps: 0,
   };
   return { ...base, ...overrides };
 };
@@ -265,7 +325,7 @@ describe("nextTierAfter", () => {
     // Sparse array with a hole at index 1: ["fast", undefined, "heavy"]
     // This exercises the ?? null branch when ladder[ci+1] is undefined.
     const sparseLadder: (string | undefined)[] = ["fast", undefined, "heavy"];
-    const p = makePolicy({ ladder: sparseLadder });
+    const p = makePolicy({ ladder: sparseLadder as unknown as string[] });
     expect(nextTierAfter("fast", p)).toBeNull();
   });
 });
@@ -956,13 +1016,12 @@ describe("property-based: bump invariants with feature ON (WU-4)", () => {
         maxAttemptsPerTier,
         maxTotalAttempts,
         costMultiple: null,
-        reasoningEscalation: { enabled: true, maxLevelBumpsPerTier },
       };
 
       const producerTier = ladder[0]!;
       let state = newLadderState(producerTier, p);
-      // Simulate enterTier: set reasoningLadderLen for the starting tier
-      state = { ...state, reasoningLadderLen };
+      // Simulate enterTier: set reasoningLadderLen and tierMaxBumps for the starting tier
+      state = { ...state, reasoningLadderLen, tierMaxBumps: maxLevelBumpsPerTier };
 
       let cycles = 0;
       let done = false;
@@ -1012,7 +1071,7 @@ describe("property-based: bump invariants with feature ON (WU-4)", () => {
         const rungsRemain = state.levelIndex + 1 < state.reasoningLadderLen;
         const bumpsAvailable =
           bumpsLeft > 0 && rungsRemain && verdict.cause === "verification_fail";
-        if (bumpsAvailable && state.reasoningLadderLen > 0 && p.reasoningEscalation?.enabled) {
+        if (bumpsAvailable && state.tierMaxBumps > 0) {
           expect(action.action).not.toBe("retry");
         }
 
@@ -1217,82 +1276,114 @@ describe("nextAction — AbortSignal guard", () => {
 
 // ---------------------------------------------------------------------------
 // canBumpReasoning — pure gating function for the bump branch
+// D-2: policy param dropped; bumping eligibility is entirely state-local via tierMaxBumps.
 //
-// Truth table:
-//   T-1: enabled + tierHasLadder + bumpsLeft + verification_fail  → true
-//   T-2: enabled + tierHasLadder + bumpsLeft + retryable_error   → false
-//   T-3: enabled + tierHasLadder + bumpsLeft + no cause          → false
-//   T-4: enabled + tierHasLadder + bumpsLeft + cause=undefined    → false
-//   T-5: enabled + tierHasLadder + bumpsLeft=0 + verification_fail → false (no bumps left)
-//   T-6: enabled + tierHasLadder=0 + verification_fail            → false (no ladder)
-//   T-7: enabled=false + verification_fail                       → false (feature off)
+// Truth table (new signature: canBumpReasoning(state, verdict)):
+//   T-1: tierMaxBumps>0 + tierHasLadder + bumpsLeft + notTop + verification_fail  → true
+//   T-2: tierMaxBumps>0 + tierHasLadder + bumpsLeft + notTop + retryable_error   → false
+//   T-3: tierMaxBumps>0 + tierHasLadder + bumpsLeft + notTop + no cause          → false
+//   T-4: tierMaxBumps>0 + tierHasLadder + bumpsLeft + notTop + cause=undefined    → false
+//   T-5: tierMaxBumps>0 + tierHasLadder + bumpsLeft=0 + verification_fail         → false (no bumps left)
+//   T-6: tierMaxBumps>0 + tierHasLadder=0 + verification_fail                   → false (no ladder)
+//   T-7: tierMaxBumps=0 + verification_fail                                       → false (bumping disabled)
+//   T-8: tierMaxBumps>0 + tierHasLadder + bumpsLeft + TOP rung + verification_fail → false (at top)
 // ---------------------------------------------------------------------------
 
 describe("canBumpReasoning", () => {
-  const ladder3 = ["fast", "medium", "heavy"];
-
   // T-1: true
-  it("T-1: returns true when enabled, tierHasLadder, bumpsLeft>0, cause=verification_fail", () => {
-    const p = makePolicy({ reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 } });
-    const s = makeState({ reasoningLadderLen: 3, levelIndex: 0, bumpsThisTier: 0 });
+  it("T-1: returns true when tierMaxBumps>0, ladder, bumpsLeft, notTop, cause=verification_fail", () => {
+    const s = makeState({
+      reasoningLadderLen: 3,
+      levelIndex: 0,
+      bumpsThisTier: 0,
+      tierMaxBumps: 2,
+    });
     const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
-    expect(canBumpReasoning(s, p, verdict)).toBe(true);
+    expect(canBumpReasoning(s, verdict)).toBe(true);
   });
 
   // T-2: false (retryable_error)
   it("T-2: returns false when cause=retryable_error (even with bumps left)", () => {
-    const p = makePolicy({ reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 } });
-    const s = makeState({ reasoningLadderLen: 3, levelIndex: 0, bumpsThisTier: 0 });
+    const s = makeState({
+      reasoningLadderLen: 3,
+      levelIndex: 0,
+      bumpsThisTier: 0,
+      tierMaxBumps: 2,
+    });
     const verdict: LadderVerdict = { pass: false, cause: "retryable_error" };
-    expect(canBumpReasoning(s, p, verdict)).toBe(false);
+    expect(canBumpReasoning(s, verdict)).toBe(false);
   });
 
   // T-3: false (no cause field)
   it("T-3: returns false when cause is absent (verdict has no cause field)", () => {
-    const p = makePolicy({ reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 } });
-    const s = makeState({ reasoningLadderLen: 3, levelIndex: 0, bumpsThisTier: 0 });
+    const s = makeState({
+      reasoningLadderLen: 3,
+      levelIndex: 0,
+      bumpsThisTier: 0,
+      tierMaxBumps: 2,
+    });
     const verdict: LadderVerdict = { pass: false };
-    expect(canBumpReasoning(s, p, verdict)).toBe(false);
+    expect(canBumpReasoning(s, verdict)).toBe(false);
   });
 
   // T-4: false (cause=undefined)
   it("T-4: returns false when cause=undefined", () => {
-    const p = makePolicy({ reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 } });
-    const s = makeState({ reasoningLadderLen: 3, levelIndex: 0, bumpsThisTier: 0 });
+    const s = makeState({
+      reasoningLadderLen: 3,
+      levelIndex: 0,
+      bumpsThisTier: 0,
+      tierMaxBumps: 2,
+    });
     const verdict: LadderVerdict = { pass: false, cause: undefined };
-    expect(canBumpReasoning(s, p, verdict)).toBe(false);
+    expect(canBumpReasoning(s, verdict)).toBe(false);
   });
 
   // T-5: false (no bumps left)
-  it("T-5: returns false when bumpsThisTier >= maxLevelBumpsPerTier (no bumps left)", () => {
-    const p = makePolicy({ reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 } });
-    const s = makeState({ reasoningLadderLen: 3, levelIndex: 2, bumpsThisTier: 2 });
+  it("T-5: returns false when bumpsThisTier >= tierMaxBumps (no bumps left)", () => {
+    const s = makeState({
+      reasoningLadderLen: 3,
+      levelIndex: 1,
+      bumpsThisTier: 2,
+      tierMaxBumps: 2,
+    });
     const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
-    expect(canBumpReasoning(s, p, verdict)).toBe(false);
+    expect(canBumpReasoning(s, verdict)).toBe(false);
   });
 
   // T-6: false (no ladder)
   it("T-6: returns false when reasoningLadderLen=0 (tier has no ladder)", () => {
-    const p = makePolicy({ reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 } });
-    const s = makeState({ reasoningLadderLen: 0, levelIndex: 0, bumpsThisTier: 0 });
+    const s = makeState({
+      reasoningLadderLen: 0,
+      levelIndex: 0,
+      bumpsThisTier: 0,
+      tierMaxBumps: 2,
+    });
     const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
-    expect(canBumpReasoning(s, p, verdict)).toBe(false);
+    expect(canBumpReasoning(s, verdict)).toBe(false);
   });
 
-  // T-7: false (feature off)
-  it("T-7: returns false when enabled=false (feature off)", () => {
-    const p = makePolicy({ reasoningEscalation: { enabled: false, maxLevelBumpsPerTier: 2 } });
-    const s = makeState({ reasoningLadderLen: 3, levelIndex: 0, bumpsThisTier: 0 });
+  // T-7: false (bumping disabled)
+  it("T-7: returns false when tierMaxBumps=0 (bumping disabled)", () => {
+    const s = makeState({
+      reasoningLadderLen: 3,
+      levelIndex: 0,
+      bumpsThisTier: 0,
+      tierMaxBumps: 0,
+    });
     const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
-    expect(canBumpReasoning(s, p, verdict)).toBe(false);
+    expect(canBumpReasoning(s, verdict)).toBe(false);
   });
 
-  // T-8: omitted maxLevelBumpsPerTier defaults to 2
-  it("T-8: returns true when enabled, tierHasLadder, bumpsLeft>0, cause=verification_fail, maxLevelBumpsPerTier omitted (default cap=2)", () => {
-    const p = makePolicy({ reasoningEscalation: { enabled: true } });
-    const s = makeState({ reasoningLadderLen: 3, levelIndex: 0, bumpsThisTier: 0 });
+  // T-8: false (at top rung)
+  it("T-8: returns false when at top rung (levelIndex >= reasoningLadderLen - 1)", () => {
+    const s = makeState({
+      reasoningLadderLen: 3,
+      levelIndex: 2,
+      bumpsThisTier: 0,
+      tierMaxBumps: 2,
+    });
     const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
-    expect(canBumpReasoning(s, p, verdict)).toBe(true);
+    expect(canBumpReasoning(s, verdict)).toBe(false);
   });
 });
 
@@ -1312,11 +1403,16 @@ describe("nextAction — bump branch (WU-4)", () => {
   const bumpPolicy = (overrides: Partial<EscalatePolicy> = {}) =>
     makePolicy({
       ladder,
-      reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 },
       ...overrides,
     });
   const ladderState = (overrides: Partial<LadderState> = {}) =>
-    makeState({ reasoningLadderLen: 3, levelIndex: 0, bumpsThisTier: 0, ...overrides });
+    makeState({
+      reasoningLadderLen: 3,
+      levelIndex: 0,
+      bumpsThisTier: 0,
+      tierMaxBumps: 2,
+      ...overrides,
+    });
 
   // T-1: bump
   it("T-1: returns bump when feature ON + tierHasLadder + bumpsLeft + verification_fail", () => {
@@ -1341,7 +1437,7 @@ describe("nextAction — bump branch (WU-4)", () => {
 
   // T-4: cap-hit escalate (no bump — bumps exhausted)
   it("T-4: escalates when bumpsThisTier >= maxLevelBumpsPerTier", () => {
-    const p = bumpPolicy({ reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 } });
+    const p = bumpPolicy();
     const s = ladderState({ levelIndex: 0, bumpsThisTier: 2, attemptsThisTier: 1 });
     const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
     const a = nextAction(s, verdict, p);
@@ -1350,10 +1446,15 @@ describe("nextAction — bump branch (WU-4)", () => {
 
   // T-4 variant: bumps exhausted at non-top-rung with next tier available
   it("T-4 variant: escalates to next tier when explicit bump cap exhausted but rungs remain and higher tier exists", () => {
-    const p = bumpPolicy({ reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 1 } });
+    const p = bumpPolicy();
     // levelIndex 0 with reasoningLadderLen 3 => rungs remain (0+1 < 3)
     // bumpsThisTier 1 === maxLevelBumpsPerTier 1 => bumps exhausted
-    const s = ladderState({ levelIndex: 0, bumpsThisTier: 1, attemptsThisTier: 1 });
+    const s = ladderState({
+      levelIndex: 0,
+      bumpsThisTier: 1,
+      attemptsThisTier: 1,
+      tierMaxBumps: 1,
+    });
     const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
     const a = nextAction(s, verdict, p);
     expect(a.action).toBe("escalate");
@@ -1375,9 +1476,8 @@ describe("nextAction — bump branch (WU-4)", () => {
     const p = makePolicy({
       ladder,
       maxAttemptsPerTier: 2,
-      reasoningEscalation: { enabled: false },
     });
-    const s = ladderState({ attemptsThisTier: 0 });
+    const s = ladderState({ attemptsThisTier: 0, tierMaxBumps: 0 });
     const verdict: LadderVerdict = { pass: false, cause: "verification_fail" };
     const a = nextAction(s, verdict, p);
     expect(a.action).toBe("retry"); // existing path, no bump
@@ -1420,7 +1520,6 @@ describe("attempt accounting with bumps (039 characterization)", () => {
     maxAttemptsPerTier: 2,
     maxTotalAttempts: 10,
     costMultiple: null,
-    reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 },
   };
 
   it("bumps do not consume the retry budget: attemptsThisTier stays 0 across two bumps", () => {
@@ -1436,6 +1535,7 @@ describe("attempt accounting with bumps (039 characterization)", () => {
       levelIndex: 0,
       bumpsThisTier: 0,
       reasoningLadderLen: 3,
+      tierMaxBumps: 2,
     };
 
     // First FAIL: bumps + rungs both available → bump.
@@ -1455,17 +1555,19 @@ describe("attempt accounting with bumps (039 characterization)", () => {
     expect(state.bumpsThisTier).toBe(2);
     expect(state.attemptsThisTier).toBe(0); // still zero — the retry budget is intact
 
-    // Third FAIL: bumpsThisTier=2 === maxLevelBumpsPerTier → bumps exhausted,
-    // canBumpReasoning returns false → enters else-wrap branch 6 (retry).
-    // attemptsThisTier=0 < maxAttemptsPerTier=2 → retry, not escalate.
+    // Third FAIL: bumpsThisTier=2 === tierMaxBumps=2 → bump exhausted (D-3 spec).
+    // bumpExhausted returns true → escalate directly, no same-level retry.
     a = nextAction(state, fail, p);
-    expect(a.action).toBe("retry");
-    expect(state.attemptsThisTier).toBe(0);
+    expect(a.action).toBe("escalate");
+    expect(a.tier).toBe("medium");
     state = advance(state, a);
-    expect(state.attemptsThisTier).toBe(1); // first retry consumed
+    // On escalate, attemptsThisTier resets to 0.
+    expect(state.attemptsThisTier).toBe(0);
+    expect(state.levelIndex).toBe(0); // reset on tier change
+    expect(state.bumpsThisTier).toBe(0); // reset on tier change
   });
 
-  it("worst-case per-tier arithmetic: 1 initial + 2 bumps + 2 retries = 5 attempts then escalate", () => {
+  it("worst-case per-tier arithmetic: 1 initial + 2 bumps + escalate (D-3: bump exhaustion bypasses retry)", () => {
     const fail: LadderVerdict = { pass: false, cause: "verification_fail" };
 
     let state: LadderState = {
@@ -1478,6 +1580,7 @@ describe("attempt accounting with bumps (039 characterization)", () => {
       levelIndex: 0,
       bumpsThisTier: 0,
       reasoningLadderLen: 3,
+      tierMaxBumps: 2,
     };
 
     // Drive the bump-phase to its end (2 bumps for a 3-rung ladder).
@@ -1490,27 +1593,22 @@ describe("attempt accounting with bumps (039 characterization)", () => {
     expect(state.levelIndex).toBe(2);
     expect(state.attemptsThisTier).toBe(0); // bump phase never touched retries
 
-    // Now drive the retry phase. Each retry increments attemptsThisTier.
-    const firstRetry = nextAction(state, fail, p);
-    expect(firstRetry.action).toBe("retry");
-    state = advance(state, firstRetry);
-    expect(state.attemptsThisTier).toBe(1);
-
-    const secondRetry = nextAction(state, fail, p);
-    expect(secondRetry.action).toBe("retry");
-    state = advance(state, secondRetry);
-    expect(state.attemptsThisTier).toBe(2);
-
-    // Once attemptsThisTier reaches maxAttemptsPerTier (2), no further retry.
-    // Falls through to branch 7 → escalate to "medium".
+    // Third verification_fail: bump exhausted (tierMaxBumps reached + top rung) → escalate directly (D-3 spec).
+    // No retry phase — bumpExhausted bypasses branch 6.
     const escalateAction = nextAction(state, fail, p);
     expect(escalateAction.action).toBe("escalate");
     expect(escalateAction.tier).toBe("medium");
+    state = advance(state, escalateAction);
+    // On escalate: attemptsThisTier=0, levelIndex=0, bumpsThisTier=0, tierMaxBumps=0 (all reset).
+    expect(state.attemptsThisTier).toBe(0);
+    expect(state.levelIndex).toBe(0);
+    expect(state.bumpsThisTier).toBe(0);
+    expect(state.tierMaxBumps).toBe(0);
   });
 
   it("top-of-rung with bumps still remaining escalates (pins the collapsed `!rungsRemain` path)", () => {
     // levelIndex 2 is the top of a 3-rung ladder (idx 0,1,2).
-    // bumpsThisTier=1 < maxLevelBumpsPerTier=2 → bumps remain mathematically,
+    // bumpsThisTier=1 < tierMaxBumps=2 → bumps remain mathematically,
     // but no rung above → bump is impossible; must escalate.
     const s: LadderState = {
       currentTier: "fast",
@@ -1522,6 +1620,7 @@ describe("attempt accounting with bumps (039 characterization)", () => {
       levelIndex: 2,
       bumpsThisTier: 1,
       reasoningLadderLen: 3,
+      tierMaxBumps: 2,
     };
     const fail: LadderVerdict = { pass: false, cause: "verification_fail" };
     const a = nextAction(s, fail, p);

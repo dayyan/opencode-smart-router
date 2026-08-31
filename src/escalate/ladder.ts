@@ -13,10 +13,6 @@ export interface EscalatePolicy {
   maxAttemptsPerTier: number;
   maxTotalAttempts: number;
   costMultiple?: number | null;
-  reasoningEscalation?: {
-    enabled?: boolean;
-    maxLevelBumpsPerTier?: number;
-  };
 }
 
 export interface LadderState {
@@ -32,6 +28,8 @@ export interface LadderState {
   bumpsThisTier: number;
   /** Length of this tier's reasoning ladder (0 = no ladder). Set by enterTier. */
   reasoningLadderLen: number;
+  /** Max bumps allowed within this tier (0 = bumping disabled). Set by enterTier. */
+  tierMaxBumps: number;
 }
 
 export type LadderActionKind = "accept" | "retry" | "escalate" | "give_up" | "bump";
@@ -76,6 +74,7 @@ export const newLadderState = (producerTier: string, policy: EscalatePolicy): La
     levelIndex: 0,
     bumpsThisTier: 0,
     reasoningLadderLen: 0,
+    tierMaxBumps: 0,
   };
 };
 
@@ -109,24 +108,41 @@ export const buildLadderForcingMessage = (reasons: string[]): string => {
 
 /**
  * Pure gating function for the bump branch. Returns true only when:
- *   - feature is enabled (policy.reasoningEscalation.enabled === true)
+ *   - bumping is enabled (state.tierMaxBumps > 0)
  *   - the current tier has a reasoning ladder (state.reasoningLadderLen > 0)
- *   - there are bumps remaining within this tier
- *     (state.bumpsThisTier < policy.reasoningEscalation.maxLevelBumpsPerTier)
+ *   - there are bumps remaining within this tier (state.bumpsThisTier < state.tierMaxBumps)
+ *   - the current level is not the top (state.levelIndex < state.reasoningLadderLen - 1)
  *   - the verdict cause is "verification_fail" (not "retryable_error" or absent)
+ *
+ * D-2: policy param dropped; bumping eligibility is entirely state-local via tierMaxBumps.
  */
 export const canBumpReasoning = (
   state: LadderState,
-  policy: EscalatePolicy,
   verdict: LadderVerdict | null | undefined,
 ): boolean => {
-  const re = policy.reasoningEscalation;
-  if (!re?.enabled) return false;
+  if (state.tierMaxBumps <= 0) return false;
   if (state.reasoningLadderLen <= 0) return false;
-  const bumpsLeft = (re.maxLevelBumpsPerTier ?? 2) - state.bumpsThisTier;
-  if (bumpsLeft <= 0) return false;
+  if (state.bumpsThisTier >= state.tierMaxBumps) return false;
+  if (state.levelIndex >= state.reasoningLadderLen - 1) return false;
   if (verdict?.cause !== "verification_fail") return false;
   return true;
+};
+
+/**
+ * Pure predicate: true when bump is in play but cannot proceed (cap or top exhausted).
+ * D-3: used to bypass the ordinary retry branch and escalate directly.
+ * bumpExhausted = reasoningLadderLen > 0 && tierMaxBumps > 0 && cause === "verification_fail"
+ *                && !canBumpReasoning(state, verdict)
+ */
+export const bumpExhausted = (
+  state: LadderState,
+  verdict: LadderVerdict | null | undefined,
+): boolean => {
+  if (state.reasoningLadderLen <= 0) return false;
+  if (state.tierMaxBumps <= 0) return false;
+  if (verdict?.cause !== "verification_fail") return false;
+  // True when canBumpReasoning is false but we have a control + cause — exhaustion.
+  return !canBumpReasoning(state, verdict);
 };
 
 export const nextAction = (
@@ -167,48 +183,36 @@ export const nextAction = (
 
   // (5.5) level bump — verification_fail ladder tiers escalate within tier
   // before retrying or escalating to the next tier.
-  const bumpEnabled = canBumpReasoning(state, policy, verdict);
-  if (bumpEnabled) {
-    const re = policy.reasoningEscalation;
-    const bumpsLeft = (re?.maxLevelBumpsPerTier ?? 2) - state.bumpsThisTier;
-    const rungsRemain = state.levelIndex + 1 < state.reasoningLadderLen;
-    if (rungsRemain && bumpsLeft > 0) {
-      return {
-        action: "bump",
-        tier: state.currentTier,
-        forcingMessage: buildLadderForcingMessage(verdict?.reasons ?? []),
-      };
-    }
-    // Top of the tier's reasoning ladder (no rungs remain above the current
-    // level): escalate to the next tier. NOTE: `bumpsLeft <= 0` can NEVER be
-    // true here — `canBumpReasoning` (line ~127) already returned false for
-    // bumpsLeft <= 0, and this block only runs when it returned true. The
-    // bumps-exhausted case therefore also lands here, via the `!rungsRemain`
-    // path after the last bump consumed the final rung.
-    if (!rungsRemain) {
-      const next = nextTierAfter(state.currentTier, policy);
-      if (next != null) {
-        return {
-          action: "escalate",
-          tier: next,
-          forcingMessage: buildLadderForcingMessage(verdict?.reasons ?? []),
-        };
-      }
+  if (canBumpReasoning(state, verdict)) {
+    return {
+      action: "bump",
+      tier: state.currentTier,
+      forcingMessage: buildLadderForcingMessage(verdict?.reasons ?? []),
+    };
+  }
+  // bumpExhausted: control in play but bump exhausted (cap or top) → escalate directly
+  if (bumpExhausted(state, verdict)) {
+    const next = nextTierAfter(state.currentTier, policy);
+    if (next == null) {
       return {
         action: "give_up",
         reason: "no higher tier (already at top of ladder)",
       };
     }
-  } else {
-    // (6) retry within tier — non-bump cases only (retryable, non-ladder,
-    // feature-off, omitted cause) enter this branch byte-for-byte.
-    if (state.attemptsThisTier < policy.maxAttemptsPerTier) {
-      return {
-        action: "retry",
-        tier: state.currentTier,
-        forcingMessage: buildLadderForcingMessage(verdict?.reasons ?? []),
-      };
-    }
+    return {
+      action: "escalate",
+      tier: next,
+      forcingMessage: buildLadderForcingMessage(verdict?.reasons ?? []),
+    };
+  }
+  // (6) retry within tier — non-bump cases only (retryable, non-ladder,
+  // feature-off, omitted cause) enter this branch byte-for-byte.
+  if (state.attemptsThisTier < policy.maxAttemptsPerTier) {
+    return {
+      action: "retry",
+      tier: state.currentTier,
+      forcingMessage: buildLadderForcingMessage(verdict?.reasons ?? []),
+    };
   }
 
   // (7) escalate or give_up
@@ -250,6 +254,7 @@ export const advance = (state: LadderState, action: LadderAction): LadderState =
       levelIndex: 0,
       bumpsThisTier: 0,
       reasoningLadderLen: 0,
+      tierMaxBumps: 0,
     };
   }
   // accept / give_up — terminal, return unchanged
@@ -264,7 +269,6 @@ export const buildEscalatePolicy = (cfg: RouterConfig): EscalatePolicy => {
     maxAttemptsPerTier: esc?.maxAttemptsPerTier ?? 1,
     maxTotalAttempts: esc?.maxTotalAttempts ?? 4,
     costMultiple: esc?.costCeiling?.multiple ?? 4,
-    reasoningEscalation: esc?.reasoningEscalation ?? { enabled: false, maxLevelBumpsPerTier: 2 },
   };
 };
 

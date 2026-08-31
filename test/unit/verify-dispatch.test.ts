@@ -1589,6 +1589,7 @@ describe("dumpDelegateScorecard", () => {
       levelIndex: 0,
       bumpsThisTier: 0,
       reasoningLadderLen: 0,
+      tierMaxBumps: 0,
     };
 
     dumpDelegateScorecard(sid, state, true, "deterministic");
@@ -1620,6 +1621,7 @@ describe("dumpDelegateScorecard", () => {
       levelIndex: 0,
       bumpsThisTier: 0,
       reasoningLadderLen: 0,
+      tierMaxBumps: 0,
     };
 
     dumpDelegateScorecard(sid, { ...base }, true, "deterministic");
