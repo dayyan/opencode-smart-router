@@ -12,17 +12,14 @@
 //   patchAtIndex(control, levelIndex)        — applies clamped index to produce channel patch
 // ---------------------------------------------------------------------------
 
-import type { ReasoningCapability, ReasoningLevel } from "./capability.js";
-import {
-  channelPatch,
-  type ReasoningControlChannel,
-} from "./capability.js";
 import type {
-  ReasoningControl,
-  StringReasoningControl,
   BudgetReasoningControl,
+  ReasoningControl,
   ReasoningProfileId,
+  StringReasoningControl,
 } from "../router/config.types.js";
+import type { ReasoningCapability, ReasoningLevel } from "./capability.js";
+import { channelPatch, type ReasoningControlChannel } from "./capability.js";
 
 /**
  * Provider-specific reasoning patch to apply on top of the static agent def.

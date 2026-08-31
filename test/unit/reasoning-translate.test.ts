@@ -3,17 +3,17 @@ import type { ReasoningCapability, ReasoningLevel } from "../../src/reasoning/ca
 import {
   capabilityLadderLength,
   levelIndexForVariant,
-  resolveLevelIndex,
-  resolveControlPatch,
   patchAtIndex,
+  resolveControlPatch,
+  resolveLevelIndex,
   translateAtIndex,
   translateLevel,
 } from "../../src/reasoning/translate";
 import type {
+  BudgetReasoningControl,
   ReasoningControl,
   ReasoningProfileId,
   StringReasoningControl,
-  BudgetReasoningControl,
 } from "../../src/router/config.types";
 
 const LEVELS: ReasoningLevel[] = ["minimal", "normal", "elevated", "max"];
@@ -642,7 +642,7 @@ describe("resolveControlPatch — profile ID to native via profileMap", () => {
     // A control whose profileMap points to a value absent from levels — defensive
     const orphanedControl: StringReasoningControl = {
       channel: "variant",
-      levels: ["low", "high"],           // no "medium" in levels
+      levels: ["low", "high"], // no "medium" in levels
       profileMap: { p1: "low", p2: "medium" }, // p2 → "medium" not in levels
       maxBumps: 1,
     };
