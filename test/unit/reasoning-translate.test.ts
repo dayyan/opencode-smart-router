@@ -4,9 +4,17 @@ import {
   capabilityLadderLength,
   levelIndexForVariant,
   resolveLevelIndex,
+  resolveControlPatch,
+  patchAtIndex,
   translateAtIndex,
   translateLevel,
 } from "../../src/reasoning/translate";
+import type {
+  ReasoningControl,
+  ReasoningProfileId,
+  StringReasoningControl,
+  BudgetReasoningControl,
+} from "../../src/router/config.types";
 
 const LEVELS: ReasoningLevel[] = ["minimal", "normal", "elevated", "max"];
 
@@ -533,5 +541,227 @@ describe("translateLevel regression — output unchanged after new helpers added
   it("binary translateLevel output unchanged", () => {
     expect(translateLevel(binaryWithBaseline, "elevated")).toEqual({ variant: "thinking" });
     expect(translateLevel(binaryWithBaseline, "minimal")).toEqual({ variant: "default" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WU-2 — resolveControlPatch / patchAtIndex
+// V2 reasoning control: profile ID → native level → channel patch
+// Spec: reasoning-control/spec.md "profileMap Bridges Registry to Native Levels"
+// ---------------------------------------------------------------------------
+
+describe("resolveControlPatch — profile ID to native via profileMap", () => {
+  // Fixture controls matching bundled-config data table (R-2 fixture IDs)
+  const variantControl: StringReasoningControl = {
+    channel: "variant",
+    levels: ["low", "medium", "high"],
+    profileMap: { p1: "low", p2: "medium", p3: "high" },
+    maxBumps: 2,
+  };
+  const effortControl: StringReasoningControl = {
+    channel: "reasoning.effort",
+    levels: ["low", "medium", "high", "xhigh", "max"],
+    profileMap: { light: "low", standard: "medium", deep: "high" },
+    maxBumps: 3,
+  };
+  const budgetControl: BudgetReasoningControl = {
+    channel: "thinking.budgetTokens",
+    levels: [1024, 4096, 8192],
+    profileMap: { light: 1024, standard: 4096, deep: 8192 },
+    maxBumps: 2,
+  };
+
+  // Scenario: bridge resolves losslessly — each profile maps to a distinct level
+  it("variant channel: each profile resolves to its mapped native with correct index", () => {
+    const r1 = resolveControlPatch(variantControl, "p1");
+    const r2 = resolveControlPatch(variantControl, "p2");
+    const r3 = resolveControlPatch(variantControl, "p3");
+
+    expect(r1?.native).toBe("low");
+    expect(r1?.levelIndex).toBe(0);
+    expect(r2?.native).toBe("medium");
+    expect(r2?.levelIndex).toBe(1);
+    expect(r3?.native).toBe("high");
+    expect(r3?.levelIndex).toBe(2);
+
+    // Lossless: all three natives are distinct
+    expect(r1?.native).not.toBe(r2?.native);
+    expect(r2?.native).not.toBe(r3?.native);
+    expect(r1?.native).not.toBe(r3?.native);
+  });
+
+  it("effort channel: each profile maps to a distinct native level (5-level ladder)", () => {
+    const rLight = resolveControlPatch(effortControl, "light");
+    const rStandard = resolveControlPatch(effortControl, "standard");
+    const rDeep = resolveControlPatch(effortControl, "deep");
+
+    expect(rLight?.native).toBe("low");
+    expect(rLight?.levelIndex).toBe(0);
+    expect(rStandard?.native).toBe("medium");
+    expect(rStandard?.levelIndex).toBe(1);
+    expect(rDeep?.native).toBe("high");
+    expect(rDeep?.levelIndex).toBe(2);
+
+    // Distinct natives — no collapse
+    expect(rLight?.native).not.toBe(rStandard?.native);
+    expect(rStandard?.native).not.toBe(rDeep?.native);
+  });
+
+  it("budget channel: each profile maps to its numeric native level", () => {
+    const rLight = resolveControlPatch(budgetControl, "light");
+    const rStandard = resolveControlPatch(budgetControl, "standard");
+    const rDeep = resolveControlPatch(budgetControl, "deep");
+
+    expect(rLight?.native).toBe(1024);
+    expect(rLight?.levelIndex).toBe(0);
+    expect(rStandard?.native).toBe(4096);
+    expect(rStandard?.levelIndex).toBe(1);
+    expect(rDeep?.native).toBe(8192);
+    expect(rDeep?.levelIndex).toBe(2);
+
+    // Distinct natives
+    expect(rLight?.native).not.toBe(rStandard?.native);
+    expect(rStandard?.native).not.toBe(rDeep?.native);
+  });
+
+  // Null cases
+  it("returns null when control is absent (undefined)", () => {
+    expect(resolveControlPatch(undefined, "p1")).toBeNull();
+  });
+
+  it("returns null when control is null", () => {
+    expect(resolveControlPatch(null as unknown as ReasoningControl, "p1")).toBeNull();
+  });
+
+  it("returns null when profileId is not in profileMap", () => {
+    const result = resolveControlPatch(variantControl, "unknown-profile" as ReasoningProfileId);
+    expect(result).toBeNull();
+  });
+
+  it("returns null when the mapped native value is not found in levels (orphan map entry)", () => {
+    // A control whose profileMap points to a value absent from levels — defensive
+    const orphanedControl: StringReasoningControl = {
+      channel: "variant",
+      levels: ["low", "high"],           // no "medium" in levels
+      profileMap: { p1: "low", p2: "medium" }, // p2 → "medium" not in levels
+      maxBumps: 1,
+    };
+    expect(resolveControlPatch(orphanedControl, "p2")).toBeNull();
+    expect(resolveControlPatch(orphanedControl, "p1")).not.toBeNull(); // p1 is valid
+  });
+});
+
+describe("patchAtIndex — channel routing with index clamping", () => {
+  const variantControl: StringReasoningControl = {
+    channel: "variant",
+    levels: ["low", "medium", "high"],
+    profileMap: { p1: "low", p2: "medium", p3: "high" },
+    maxBumps: 2,
+  };
+  const effortControl: StringReasoningControl = {
+    channel: "reasoning.effort",
+    levels: ["low", "medium", "high", "xhigh", "max"],
+    profileMap: { light: "low", standard: "medium", deep: "high" },
+    maxBumps: 3,
+  };
+  const budgetControl: BudgetReasoningControl = {
+    channel: "thinking.budgetTokens",
+    levels: [1024, 4096, 8192],
+    profileMap: { light: 1024, standard: 4096, deep: 8192 },
+    maxBumps: 2,
+  };
+
+  // Scenario: each channel writes its target
+  it("variant channel writes {variant}", () => {
+    expect(patchAtIndex(variantControl, 0)).toEqual({ variant: "low" });
+    expect(patchAtIndex(variantControl, 1)).toEqual({ variant: "medium" });
+    expect(patchAtIndex(variantControl, 2)).toEqual({ variant: "high" });
+  });
+
+  it("reasoning.effort channel writes {options:{reasoning_effort}}", () => {
+    expect(patchAtIndex(effortControl, 0)).toEqual({ options: { reasoning_effort: "low" } });
+    expect(patchAtIndex(effortControl, 3)).toEqual({ options: { reasoning_effort: "xhigh" } });
+    expect(patchAtIndex(effortControl, 4)).toEqual({ options: { reasoning_effort: "max" } });
+  });
+
+  it("thinking.budgetTokens channel writes {options:{budget_tokens}}", () => {
+    expect(patchAtIndex(budgetControl, 0)).toEqual({ options: { budget_tokens: 1024 } });
+    expect(patchAtIndex(budgetControl, 1)).toEqual({ options: { budget_tokens: 4096 } });
+    expect(patchAtIndex(budgetControl, 2)).toEqual({ options: { budget_tokens: 8192 } });
+  });
+
+  // Scenario: index clamps at bounds
+  it("index beyond last level clamps to last (variant)", () => {
+    // Index 99 → clamped to 2 (last = "high")
+    expect(patchAtIndex(variantControl, 99)).toEqual({ variant: "high" });
+  });
+
+  it("index at exactly last level uses last (effort)", () => {
+    // Index 4 = last on 5-level ladder
+    expect(patchAtIndex(effortControl, 4)).toEqual({ options: { reasoning_effort: "max" } });
+  });
+
+  it("index beyond last level clamps to last (effort)", () => {
+    expect(patchAtIndex(effortControl, 999)).toEqual({ options: { reasoning_effort: "max" } });
+  });
+
+  it("index beyond last level clamps to last (budget)", () => {
+    // Index 100 → clamped to 2 → 8192
+    expect(patchAtIndex(budgetControl, 100)).toEqual({ options: { budget_tokens: 8192 } });
+  });
+
+  it("index at last + 1 clamps correctly (budget)", () => {
+    // len=3, last index=2; index=3 → clamped to 2
+    expect(patchAtIndex(budgetControl, 3)).toEqual({ options: { budget_tokens: 8192 } });
+  });
+
+  // Null cases
+  it("returns null when control is absent", () => {
+    expect(patchAtIndex(undefined as unknown as ReasoningControl, 0)).toBeNull();
+  });
+
+  it("returns null when control is null", () => {
+    expect(patchAtIndex(null as unknown as ReasoningControl, 0)).toBeNull();
+  });
+
+  // Negative index clamps to 0
+  it("negative index clamps to 0 (variant)", () => {
+    expect(patchAtIndex(variantControl, -5)).toEqual({ variant: "low" });
+  });
+});
+
+describe("resolveControlPatch + patchAtIndex — end-to-end bridge", () => {
+  const effortControl: StringReasoningControl = {
+    channel: "reasoning.effort",
+    levels: ["low", "medium", "high", "xhigh", "max"],
+    profileMap: { light: "low", standard: "medium", deep: "high" },
+    maxBumps: 3,
+  };
+
+  it("resolveControlPatch result feeds directly into patchAtIndex", () => {
+    // p2 → standard → native "medium" → index 1
+    const resolved = resolveControlPatch(effortControl, "standard");
+    expect(resolved?.native).toBe("medium");
+    expect(resolved?.levelIndex).toBe(1);
+
+    const patch = patchAtIndex(effortControl, resolved!.levelIndex);
+    expect(patch).toEqual({ options: { reasoning_effort: "medium" } });
+  });
+
+  it("unregistered profile returns null; null input to patchAtIndex is handled", () => {
+    const resolved = resolveControlPatch(effortControl, "not-registered" as ReasoningProfileId);
+    expect(resolved).toBeNull();
+    // patchAtIndex must also handle null gracefully
+    expect(patchAtIndex(effortControl, 0)).not.toBeNull();
+  });
+
+  it("distinct profiles never collapse to the same native value (lossless bridge)", () => {
+    const natives = new Set<string | number>();
+    for (const profile of ["light", "standard", "deep"] as const) {
+      const resolved = resolveControlPatch(effortControl, profile);
+      natives.add(resolved!.native);
+    }
+    // Three distinct profiles → three distinct natives
+    expect(natives.size).toBe(3);
   });
 });
