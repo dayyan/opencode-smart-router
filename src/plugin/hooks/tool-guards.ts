@@ -30,6 +30,7 @@ import type { AdaptiveSignals } from "../../reasoning/adaptive.js";
 import { selectAdaptiveLevel } from "../../reasoning/adaptive.js";
 import { normalizeSignalText } from "../../reasoning/match.js";
 import { resolveReasoningOverride, resolveReasoningProfile } from "../../reasoning/policy.js";
+import { patchAtIndex, resolveControlPatch } from "../../reasoning/translate.js";
 import { applyReasoningPatch } from "../../router/agents";
 import { getActiveTiers } from "../../router/protocol";
 import { READ_ONLY_TOOLS } from "../../router/tools";
@@ -200,6 +201,19 @@ export const applyOrchestratorReasoningPatch = async (params: {
                   tier: subagentType,
                   override,
                 });
+              }
+              // WU-3: complete the D-1 chain — resolveControlPatch + patchAtIndex + applyReasoningPatch.
+              // Skip when overrideUnknown (the override was rejected; caller's logged the event).
+              if (v2resolution.profile != null && !v2resolution.overrideUnknown) {
+                const tierCfg = cfg.presets?.[cfg.activePreset]?.[subagentType];
+                const control = tierCfg?.reasoningControl ?? null;
+                const resolved = resolveControlPatch(control, v2resolution.profile);
+                if (resolved != null) {
+                  const patch = patchAtIndex(control, resolved.levelIndex);
+                  if (patch) {
+                    applyReasoningPatch(agentDef, patch);
+                  }
+                }
               }
             }
 
