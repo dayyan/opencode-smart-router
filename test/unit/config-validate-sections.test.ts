@@ -571,6 +571,70 @@ describe("Plan 041 R-3 — reasoningControl validation", () => {
       ),
     ).not.toThrow();
   });
+
+  it("rejects manual mode without registered profiles", () => {
+    expect(() => validateConfig(validRaw({ reasoningPolicy: { mode: "manual" } }))).toThrow(
+      /reasoningPolicy\.profiles is required.*mode is not 'static'/,
+    );
+  });
+
+  it("rejects adaptive mode without registered profiles", () => {
+    expect(() => validateConfig(validRaw({ reasoningPolicy: { mode: "adaptive" } }))).toThrow(
+      /reasoningPolicy\.profiles is required.*mode is not 'static'/,
+    );
+  });
+
+  it("rejects reasoningControl without registered profiles", () => {
+    expect(() =>
+      validateConfig({
+        ...validRaw(),
+        presets: {
+          anthropic: {
+            fast: {
+              model: "anthropic/claude-haiku-4-5",
+              description: "fast tier",
+              whenToUse: ["recon"],
+              reasoningControl: {
+                channel: "variant",
+                levels: ["low", "high"],
+                profileMap: { p1: "low" },
+                maxBumps: 0,
+              },
+            },
+          },
+        },
+      }),
+    ).toThrow(/reasoningPolicy\.profiles is required.*tier uses reasoningControl/);
+  });
+
+  it("accepts static mode without profiles when no tier uses reasoningControl", () => {
+    expect(() => validateConfig(validRaw({ reasoningPolicy: { mode: "static" } }))).not.toThrow();
+  });
+
+  it("accepts reasoningControl when profiles are registered", () => {
+    expect(() =>
+      validateConfig({
+        ...validRaw({
+          reasoningPolicy: { mode: "manual", profiles: ["p1"], defaultProfile: "p1" },
+        }),
+        presets: {
+          anthropic: {
+            fast: {
+              model: "anthropic/claude-haiku-4-5",
+              description: "fast tier",
+              whenToUse: ["recon"],
+              reasoningControl: {
+                channel: "variant",
+                levels: ["low"],
+                profileMap: { p1: "low" },
+                maxBumps: 0,
+              },
+            },
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
 });
 
 describe("validateReasoningPolicyMode", () => {

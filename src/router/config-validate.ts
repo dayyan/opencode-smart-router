@@ -52,6 +52,27 @@ const MATCH_MODES = ["word", "stem", "substring", "regex"] as const;
 const isReasoningLevel = (v: unknown): v is ReasoningLevel =>
   typeof v === "string" && (REASONING_LEVELS as readonly string[]).includes(v);
 
+// True when the configuration cannot function without a registry of profiles:
+// any non-static policy mode needs a registry to select from, and any tier
+// that declares reasoningControl needs registry-backed profile mappings.
+const needsReasoningProfiles = (obj: Record<string, unknown>): boolean => {
+  const policy = isPlainObject(obj.reasoningPolicy) ? obj.reasoningPolicy : undefined;
+  if (policy && policy.mode !== undefined && policy.mode !== "static") {
+    return true;
+  }
+  const presets = isPlainObject(obj.presets) ? obj.presets : undefined;
+  if (!isPlainObject(presets)) return false;
+  for (const preset of Object.values(presets)) {
+    if (!isPlainObject(preset)) continue;
+    for (const tier of Object.values(preset)) {
+      if (isPlainObject(tier) && tier.reasoningControl !== undefined) {
+        return true;
+      }
+    }
+  }
+  return false;
+};
+
 // ---------------------------------------------------------------------------
 // validateConfig — orchestrator
 // ---------------------------------------------------------------------------
@@ -61,6 +82,12 @@ export const validateConfig = (raw: unknown): RouterConfig => {
     throw new Error("tiers.json: expected a JSON object at root");
   }
   validateRootFields(raw);
+  const policy = isPlainObject(raw.reasoningPolicy) ? raw.reasoningPolicy : undefined;
+  if (needsReasoningProfiles(raw) && !Array.isArray(policy?.profiles)) {
+    throw new Error(
+      "tiers.json: reasoningPolicy.profiles is required when any tier uses reasoningControl or mode is not 'static'",
+    );
+  }
   validatePresets(raw);
   validateRulesAndDefaultTier(raw);
   validateModes(raw);
