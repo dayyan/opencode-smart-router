@@ -815,22 +815,35 @@ describe("selectAdaptiveLevel — Plan 018 match-mode coverage", () => {
 import { selectAdaptiveLevelV2 } from "../../src/reasoning/adaptive";
 import type { ReasoningPolicyConfigV2 } from "../../src/router/config.types";
 
+type AdaptivePolicyConfigV2 = NonNullable<ReasoningPolicyConfigV2["adaptive"]>;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 const makeV2Policy = (
-  adaptive: Parameters<typeof selectAdaptiveLevelV2>[1]["adaptive"],
+  adaptive: AdaptivePolicyConfigV2,
   overrides: Partial<{
     defaultProfile: string | null;
   }> = {},
-): ReasoningPolicyConfigV2 => ({
-  mode: "adaptive",
-  profiles: ["light", "standard", "deep"],
-  defaultProfile: "standard",
-  adaptive,
-  ...overrides,
-});
+): ReasoningPolicyConfigV2 => {
+  const policy: ReasoningPolicyConfigV2 = {
+    mode: "adaptive",
+    profiles: ["light", "standard", "deep"],
+    defaultProfile: "standard",
+    adaptive,
+  };
+
+  if (overrides.defaultProfile !== undefined) {
+    if (overrides.defaultProfile === null) {
+      delete policy.defaultProfile;
+    } else {
+      policy.defaultProfile = overrides.defaultProfile;
+    }
+  }
+
+  return policy;
+};
 
 const v2Signals = {
   prompt: "implement a new feature",
@@ -880,7 +893,7 @@ describe("selectAdaptiveLevelV2 — decision order (WU-4)", () => {
 
   it("returns { null } when isTrivial=true and trivialProfile is explicitly null", () => {
     // base.json ships `trivialProfile: null` — selector must treat explicit null identically to absent.
-    const policy = makeV2Policy({ trivialProfile: null, defaultProfile: "standard" });
+    const policy = makeV2Policy({ trivialProfile: null });
     const signals = { ...v2Signals, isTrivial: true };
     const result = selectAdaptiveLevelV2(signals, policy);
     expect(result.profile).toBeNull();
@@ -977,7 +990,6 @@ describe("selectAdaptiveLevelV2 — decision order (WU-4)", () => {
 
   it("excludeKeywords skips a matching rule", () => {
     const policy = makeV2Policy({
-      defaultProfile: "standard",
       rules: [{ keywords: ["refactor"], profile: "deep", excludeKeywords: ["urgent"] }],
     });
     const signals = { ...v2Signals, prompt: "urgent refactor the auth" };
@@ -987,7 +999,6 @@ describe("selectAdaptiveLevelV2 — decision order (WU-4)", () => {
 
   it("malformed rules (no keywords array) are skipped without throwing", () => {
     const policy = makeV2Policy({
-      defaultProfile: "standard",
       rules: [
         { keywords: undefined as any, profile: "deep" },
         { keywords: ["refactor"], profile: "deep" },

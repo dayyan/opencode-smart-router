@@ -14,9 +14,13 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { AdaptiveSignals, selectAdaptiveLevelV2 } from "../../src/reasoning/adaptive";
+import type { AdaptiveSignals } from "../../src/reasoning/adaptive";
 import { resolveReasoningProfile } from "../../src/reasoning/policy";
 import { resolveControlPatch } from "../../src/reasoning/translate";
+import type {
+  ReasoningPolicyConfigV2,
+  StringReasoningControl,
+} from "../../src/router/config.types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -28,14 +32,26 @@ const makeV2Policy = (
     mode?: "static" | "manual" | "adaptive";
     profiles?: string[];
     defaultProfile?: string | null;
-    adaptive?: Parameters<typeof selectAdaptiveLevelV2>[1]["adaptive"];
+    adaptive?: NonNullable<ReasoningPolicyConfigV2["adaptive"]>;
   } = {},
-) => ({
-  mode: overrides.mode ?? "manual",
-  profiles: overrides.profiles ?? ["light", "standard", "deep"],
-  defaultProfile: overrides.defaultProfile ?? "standard",
-  adaptive: overrides.adaptive,
-});
+): ReasoningPolicyConfigV2 => {
+  const policy: ReasoningPolicyConfigV2 = {
+    mode: overrides.mode ?? "manual",
+    profiles: overrides.profiles ?? ["light", "standard", "deep"],
+    defaultProfile: "standard",
+    adaptive: overrides.adaptive,
+  };
+
+  if (overrides.defaultProfile !== undefined) {
+    if (overrides.defaultProfile === null) {
+      delete policy.defaultProfile;
+    } else {
+      policy.defaultProfile = overrides.defaultProfile;
+    }
+  }
+
+  return policy;
+};
 
 const baseSignals: AdaptiveSignals = {
   prompt: "refactor the auth module",
@@ -122,10 +138,14 @@ describe("resolveReasoningProfile — D-1 contract (WU-3 foundation)", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveControlPatch — D-1 bridge (WU-3 chain)", () => {
-  const makeControl = (profileMap: Record<string, string>, levels: string[]) => ({
+  const makeControl = (
+    profileMap: Record<string, string>,
+    levels: [string, ...string[]],
+  ): StringReasoningControl => ({
     channel: "reasoning.effort" as const,
     profileMap,
     levels,
+    maxBumps: 0,
   });
 
   it("resolves a registered profile to native + levelIndex", () => {
@@ -161,10 +181,14 @@ describe("resolveControlPatch — D-1 bridge (WU-3 chain)", () => {
 // ---------------------------------------------------------------------------
 
 describe("full v2 chain — resolveReasoningProfile + resolveControlPatch (WU-3)", () => {
-  const makeControl = (profileMap: Record<string, string>, levels: string[]) => ({
+  const makeControl = (
+    profileMap: Record<string, string>,
+    levels: [string, ...string[]],
+  ): StringReasoningControl => ({
     channel: "reasoning.effort" as const,
     profileMap,
     levels,
+    maxBumps: 0,
   });
 
   it("manual registered override: deep profile on medium-effort tier", () => {
