@@ -538,10 +538,27 @@
     },
     "multi-provider": {
       "fast": {
-        "model": "minimax-coding-plan/MiniMax-M2.1",
+        "model": "opencode-go/qwen-3.8-flash",
         "costRatio": 1,
         "description": "Scout: read-only codebase reconnaissance. Parallel search, grep, glob, file reads, quick lookups. Never modifies files; routes edits back.",
         "steps": 30,
+        "reasoning": {
+          "effort": "medium"
+        },
+        "reasoningControl": {
+          "channel": "reasoning.effort",
+          "levels": [
+            "low",
+            "medium",
+            "xhigh"
+          ],
+          "profileMap": {
+            "light": "low",
+            "standard": "medium",
+            "deep": "xhigh"
+          },
+          "maxBumps": 0
+        },
         "whenToUse": [
           "Codebase exploration and parallel search",
           "Locating files and code patterns (grep/glob/ast-grep)",
@@ -634,12 +651,13 @@
             "low",
             "medium",
             "high",
-            "xhigh"
+            "xhigh",
+            "max"
           ],
           "profileMap": {
             "light": "low",
             "standard": "medium",
-            "deep": "high"
+            "deep": "max"
           },
           "maxBumps": 0
         },
@@ -766,6 +784,11 @@
       "google": [
         "openai",
         "anthropic",
+        "github-copilot"
+      ],
+      "opencode-go": [
+        "openai",
+        "google",
         "github-copilot"
       ]
     }

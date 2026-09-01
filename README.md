@@ -171,11 +171,11 @@ What the orchestrator sees (default preset, normal mode):
 
 ```text
 ## Model Delegation Protocol
-Preset: multi-provider. Tiers: @fast=minimax-coding-plan/MiniMax-M2.1(1x) @light=openai/gpt-5.6-luna(2x) @medium=minimax-coding-plan/MiniMax-M2.7(5x) @focused=minimax-coding-plan/MiniMax-M3(10x) @heavy=openai/gpt-5.6-terra(20x). mode:normal
+Preset: multi-provider. Tiers: @fast=opencode-go/qwen-3.8-flash(1x) @light=openai/gpt-5.6-luna(2x) @medium=minimax-coding-plan/MiniMax-M2.7(5x) @focused=minimax-coding-plan/MiniMax-M3(10x) @heavy=openai/gpt-5.6-terra(20x). mode:normal
 R: @fast→search/grep/read/git-info/ls/lookup-docs/types/count/exists-check/rename @light→simple-edit/config-tweak/single-file-refactor @medium→impl-feature/refactor/write-tests/bugfix(≤2)/edit-logic/code-review/build-fix/create-file/db-migrate/api-endpoint/config-update @focused→deep-debug/single-system-review/perf-opt(within one system) @heavy→arch-design/debug(≥3fail)/sec-audit/perf-opt/migrate-strategy/multi-system-integration/tradeoff-analysis/rca
 Multi-phase: prefer explore(@fast)→execute(@medium) when phases are separable. Cheapest-first when practical.
 1.[tier:X] tag in plan→delegate X 2.plan:fast/cheap→@fast | plan:medium→@medium | plan:heavy→@heavy 3.default preference: read-only→@fast | implementation→@medium 4.orchestrate=self,execute=subagent 5.trivial(≤1 tool call,no expected follow-up)→direct,skip-delegate 6.before @heavy: gather context first(usually via @fast); if already sufficient, dispatch directly 7.if self is opus: skip-@heavy(do locally), still route broader read-only exploration to @fast 8.min(cost,adequate-tier)
-Err→retry-alt-tier→fail→direct. Chain: multi-provider→anthropic→openai→google→github-copilot
+Err→retry-alt-tier→fail→direct. Chain: anthropic→openai→google→github-copilot | openai→anthropic→google→github-copilot | github-copilot→anthropic→openai→google | google→openai→anthropic→github-copilot | opencode-go→openai→google→github-copilot
 Delegate with Task(subagent_type="fast|light|medium|focused|heavy", prompt="...").
 Keep orchestration and final synthesis in the primary agent.
 ```
@@ -464,7 +464,7 @@ Each row shows the model and cost ratio for that tier in that preset.
 
 | Tier | Model | Cost ratio |
 | --- | --- | --- |
-| `@fast` | `minimax-coding-plan/MiniMax-M2.1` | 1x |
+| `@fast` | `opencode-go/qwen-3.8-flash` | 1x |
 | `@light` | `openai/gpt-5.6-luna` | 2x |
 | `@medium` | `minimax-coding-plan/MiniMax-M2.7` | 5x |
 | `@focused` | `minimax-coding-plan/MiniMax-M3` | 10x |

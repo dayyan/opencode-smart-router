@@ -123,6 +123,20 @@ describe("buildFallbackInstructions", () => {
     } as unknown as RouterConfig;
     expect(buildFallbackInstructions(cfg)).toBe("");
   });
+  it("includes opencode-go in the fallback chain when configured globally", () => {
+    const cfg = {
+      ...rich,
+      fallback: {
+        global: {
+          anthropic: ["openai"],
+          "opencode-go": ["openai", "google", "github-copilot"],
+        },
+      },
+    } as unknown as RouterConfig;
+    const out = buildFallbackInstructions(cfg);
+    expect(out).toContain("opencode-go→openai");
+    expect(out).toContain("anthropic→openai");
+  });
 });
 
 describe("buildDelegationProtocol", () => {

@@ -117,13 +117,13 @@ Optional field on each tier (`presets[<name>].<tier>.reasoningControl`). A tier 
   "presets": {
     "multi-provider": {
       "fast": {
-        "model": "opencode-go/mimo-v2.5",
-        "variant": "medium",
+        "model": "opencode-go/qwen-3.8-flash",
+        "reasoning": { "effort": "medium" },
         "reasoningControl": {
-          "channel": "variant",
-          "levels": ["low", "medium", "high"],
-          "profileMap": { "p1": "low", "p2": "medium", "p3": "high" },
-          "maxBumps": 2
+          "channel": "reasoning.effort",
+          "levels": ["low", "medium", "xhigh"],
+          "profileMap": { "p1": "low", "p2": "medium", "p3": "xhigh" },
+          "maxBumps": 0
         }
       },
       "medium": {
