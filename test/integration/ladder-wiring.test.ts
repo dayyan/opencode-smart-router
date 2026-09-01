@@ -190,12 +190,14 @@ describe("Layer-3 escalation ladder wiring", () => {
     expect(result).toContain("[router status: unmet]");
     expect(result).toContain("attempt(s)");
     expect(result).not.toContain("[router ✓ accepted:");
-    // Shipped default policy: fast ×3 (1 initial + 2 retries), light ×5
-    // (1 initial + 2 reasoning bumps + 2 retries, 5-rung ladder), medium ×2 —
-    // give_up fires at maxTotalAttempts=10. focused and heavy are never reached.
+    // D-3 with multi-provider preset (fast/light: discrete ladders, medium/focused: binary):
+    // fast ×3 (1 initial + 2 retries), light ×3 (1 initial + 2 bumps → bumpExhausted@top),
+    // medium ×3 (1 initial + 2 bumps → bumpExhausted@top), focused ×1 (bumpExhausted after 1 bump),
+    // give_up fires at maxTotalAttempts=10.
     expect(producerCalls.length).toBe(10);
     expect(producerCalls.slice(0, 3).every((c) => c.tier === "fast")).toBe(true);
-    expect(producerCalls.slice(3, 8).every((c) => c.tier === "light")).toBe(true);
-    expect(producerCalls.slice(8, 10).every((c) => c.tier === "medium")).toBe(true);
+    expect(producerCalls.slice(3, 6).every((c) => c.tier === "light")).toBe(true);
+    expect(producerCalls.slice(6, 9).every((c) => c.tier === "medium")).toBe(true);
+    expect(producerCalls[9]?.tier).toBe("focused");
   });
 });

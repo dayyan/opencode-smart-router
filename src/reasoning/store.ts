@@ -4,7 +4,7 @@
 // Mirrors `src/guard/store.ts` (closure-factory pattern, Map keyed by
 // sessionID / tier name). Owns three concerns:
 //
-//   1. Per-session override (`set/get/clear` for a `ReasoningLevel`)
+//   1. Per-session override (`set/get/clear` for an opaque profile ID)
 //   2. Per-tier baseline (`set/get` for the static agent def, captured once
 //      at config time so the runtime `tool.execute.after` hook can restore it
 //      after a `tool.execute.before` patch)
@@ -20,8 +20,6 @@
 // instead.
 // ---------------------------------------------------------------------------
 
-import type { ReasoningLevel } from "./capability.js";
-
 /**
  * Static agent def snapshot taken at config time. The runtime
  * `tool.execute.before` patch mutates a SHALLOW COPY in-place; `tool.execute.after`
@@ -35,7 +33,7 @@ export type AgentBaseline = Record<string, unknown>;
  * singleton — concurrent plugin instances must not share mutable state.
  */
 export const createReasoningStore = () => {
-  const overrides = new Map<string, ReasoningLevel>();
+  const overrides = new Map<string, string>();
   const baselines = new Map<string, AgentBaseline>();
   // Per-tier in-flight owner: the sessionID currently holding the patch lock
   // for a given tier, or `undefined` when no patch is in flight.
@@ -43,11 +41,11 @@ export const createReasoningStore = () => {
 
   return {
     // ----- session override ------------------------------------------------
-    getOverride(sessionID: string): ReasoningLevel | undefined {
+    getOverride(sessionID: string): string | undefined {
       return overrides.get(sessionID);
     },
-    setOverride(sessionID: string, level: ReasoningLevel): void {
-      overrides.set(sessionID, level);
+    setOverride(sessionID: string, profile: string): void {
+      overrides.set(sessionID, profile);
     },
     clearOverride(sessionID: string): void {
       overrides.delete(sessionID);

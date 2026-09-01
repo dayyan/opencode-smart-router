@@ -2,8 +2,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { AdaptiveSignals } from "../../src/reasoning/adaptive";
-import { resolveReasoningOverride } from "../../src/reasoning/policy";
+import { patchAtIndex, resolveControlPatch } from "../../src/reasoning/translate";
 import {
   applyReasoningPatch,
   buildAgentOptions,
@@ -81,19 +80,6 @@ const makeConfig = (overrides: Partial<RouterConfig> = {}): RouterConfig =>
     tierPrompts: {},
     ...overrides,
   }) as RouterConfig;
-
-// Placeholder signals for tests that exercise non-adaptive behaviour through
-// `resolveReasoningOverride`. The empty `prompt` / `description` ensure no
-// keyword rule could ever match even if a test accidentally left an
-// adaptive-shaped policy in place — static and manual modes never inspect
-// the signals anyway, so the slot exists only to satisfy the new 4-param
-// signature introduced for the adaptive selector (Plan 015).
-const emptySignals: AdaptiveSignals = {
-  prompt: "",
-  description: "",
-  tierName: "",
-  isTrivial: false,
-};
 
 // ---------------------------------------------------------------------------
 // Tests: buildAgentOptions
@@ -372,56 +358,29 @@ describe("restoreAgentBaseline", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Tests: resolveReasoningOverride → applyReasoningPatch round-trip
-// ---------------------------------------------------------------------------
-
-describe("integration — manual mode patch merges into agent def", () => {
-  it("a manual override on a discrete tier writes the resolved options", () => {
-    const tier = makeTier({ reasoning: { effort: "high" } });
-    const cfg = makeConfig({ reasoningPolicy: { mode: "manual" } });
+describe("Plan 041 Phase 2.5 — profile patch/restore parity", () => {
+  it("applies the registry-selected native level and restores the baseline", () => {
+    const tier = makeTier({
+      reasoning: { effort: "low" },
+      reasoningControl: {
+        channel: "reasoning.effort",
+        levels: ["low", "high"],
+        profileMap: { p1: "low", p2: "high" },
+        maxBumps: 0,
+      },
+    });
     const opencodeConfig: Record<string, any> = {};
-    registerTierAgents(opencodeConfig, makePreset({ fast: tier }), cfg);
-    const baseline = structuredClone(opencodeConfig.agent.fast);
+    registerTierAgents(opencodeConfig, makePreset({ fast: tier }), makeConfig());
+    const agentDef = opencodeConfig.agent.fast;
+    const baseline = structuredClone(agentDef);
+    const selected = resolveControlPatch(tier.reasoningControl, "p2");
 
-    const resolved = resolveReasoningOverride(tier, cfg.reasoningPolicy, "max", emptySignals);
-    expect(resolved).not.toBeNull();
-    applyReasoningPatch(opencodeConfig.agent.fast, resolved!);
+    expect(selected).toEqual({ native: "high", levelIndex: 1 });
+    applyReasoningPatch(agentDef, patchAtIndex(tier.reasoningControl, selected!.levelIndex));
+    expect(agentDef.options).toEqual({ reasoning_effort: "high" });
 
-    expect(opencodeConfig.agent.fast.options).toEqual({ reasoning_effort: "high" });
-
-    restoreAgentBaseline(opencodeConfig.agent.fast, baseline);
-    expect(opencodeConfig.agent.fast).toEqual(baseline);
-  });
-
-  it("a none-capability tier is NEVER mutated under manual mode", () => {
-    const tier = makeTier(); // no reasoning fields -> inferCapability => none
-    const cfg = makeConfig({ reasoningPolicy: { mode: "manual" } });
-    const opencodeConfig: Record<string, any> = {};
-    registerTierAgents(opencodeConfig, makePreset({ fast: tier }), cfg);
-    const baseline = structuredClone(opencodeConfig.agent.fast);
-
-    const resolved = resolveReasoningOverride(tier, cfg.reasoningPolicy, "max", emptySignals);
-    // The primary regression guard: even when the caller asks for `max`,
-    // a `none`-capability tier resolves to null.
-    expect(resolved).toBeNull();
-
-    applyReasoningPatch(opencodeConfig.agent.fast, resolved);
-    expect(opencodeConfig.agent.fast).toEqual(baseline);
-  });
-
-  it("static mode produces null regardless of override — agent def is untouched", () => {
-    const tier = makeTier({ variant: "thinking" });
-    const cfg = makeConfig({ reasoningPolicy: { mode: "static" } });
-    const opencodeConfig: Record<string, any> = {};
-    registerTierAgents(opencodeConfig, makePreset({ fast: tier }), cfg);
-    const baseline = structuredClone(opencodeConfig.agent.fast);
-
-    const resolved = resolveReasoningOverride(tier, cfg.reasoningPolicy, "max", emptySignals);
-    expect(resolved).toBeNull();
-
-    applyReasoningPatch(opencodeConfig.agent.fast, resolved);
-    expect(opencodeConfig.agent.fast).toEqual(baseline);
+    restoreAgentBaseline(agentDef, baseline);
+    expect(agentDef).toEqual(baseline);
   });
 });
 

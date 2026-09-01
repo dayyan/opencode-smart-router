@@ -27,30 +27,23 @@
 // ---------------------------------------------------------------------------
 
 import type { MatchMode } from "../reasoning/match.js";
-import {
-  type EnforcementConfig,
-  isPlainObject,
-  type ReasoningLevel,
-  type RouterConfig,
-} from "./config.types";
+import { type EnforcementConfig, isPlainObject, type RouterConfig } from "./config.types";
 import { ENFORCEMENT_MODES, GRADER_POLICIES, VERIFY_REQUIRE_MODES } from "./config-resolve";
 
 const ENFORCEMENT_MODES_LIST = ENFORCEMENT_MODES.join("|");
 const VERIFY_REQUIRE_MODES_LIST = VERIFY_REQUIRE_MODES.join("|");
 const EXPECTED_GRADER_POLICY = GRADER_POLICIES[0];
 
-// Reasoning-policy allow-lists. Mirrored from the `ReasoningLevel` type union
-// in `src/reasoning/capability.ts` and the `MatchMode` union in
+// Reasoning-policy validation uses configured profile IDs. The match modes
+// mirror the `MatchMode` union in
 // `src/reasoning/match.ts`. Kept local here (not in `config-resolve.ts`) so
 // PR3 of `robust-adaptive-trigger-words` stays a single-file validator
 // change; promoting them to shared constants is a mechanical follow-up if
 // any other module needs the same lists.
 const REASONING_MODES = ["static", "manual", "adaptive"] as const;
-const REASONING_LEVELS = ["minimal", "normal", "elevated", "max"] as const;
 const MATCH_MODES = ["word", "stem", "substring", "regex"] as const;
 
-const isReasoningLevel = (v: unknown): v is ReasoningLevel =>
-  typeof v === "string" && (REASONING_LEVELS as readonly string[]).includes(v);
+const isConfiguredLevel = (v: unknown): v is string => typeof v === "string" && v.length > 0;
 
 // ---------------------------------------------------------------------------
 // validateConfig — orchestrator
@@ -61,7 +54,8 @@ export const validateConfig = (raw: unknown): RouterConfig => {
     throw new Error("tiers.json: expected a JSON object at root");
   }
   validateRootFields(raw);
-  validatePresets(raw);
+  const policy = isPlainObject(raw.reasoningPolicy) ? raw.reasoningPolicy : undefined;
+  validatePresets(raw, Array.isArray(policy?.profiles) ? policy.profiles : undefined);
   validateRulesAndDefaultTier(raw);
   validateModes(raw);
   validateTierCaps(raw);
@@ -95,7 +89,7 @@ export const validateRulesAndDefaultTier = (obj: Record<string, unknown>): void 
 // Presets — nested tree: presets → presetName → tierName → tier
 // ---------------------------------------------------------------------------
 
-export const validatePresets = (obj: Record<string, unknown>): void => {
+export const validatePresets = (obj: Record<string, unknown>, profiles?: unknown[]): void => {
   if (!isPlainObject(obj.presets) || Array.isArray(obj.presets)) {
     throw new Error("tiers.json: 'presets' must be a non-null object");
   }
@@ -103,25 +97,35 @@ export const validatePresets = (obj: Record<string, unknown>): void => {
     throw new Error("tiers.json: 'presets' must have at least one preset");
   }
   for (const [presetName, preset] of Object.entries(obj.presets)) {
-    validatePreset(presetName, preset);
+    validatePreset(presetName, preset, profiles);
   }
 };
 
-export const validatePreset = (presetName: string, preset: unknown): void => {
+export const validatePreset = (presetName: string, preset: unknown, profiles?: unknown[]): void => {
   if (!isPlainObject(preset) || Array.isArray(preset)) {
     throw new Error(`tiers.json: preset '${presetName}' must be an object`);
   }
   for (const [tierName, tier] of Object.entries(preset)) {
-    validateTier(presetName, tierName, tier);
+    validateTier(presetName, tierName, tier, profiles);
   }
 };
 
-export const validateTier = (presetName: string, tierName: string, tier: unknown): void => {
+export const validateTier = (
+  presetName: string,
+  tierName: string,
+  tier: unknown,
+  profiles?: unknown[],
+): void => {
   if (!isPlainObject(tier)) {
     throw new Error(`tiers.json: tier '${presetName}.${tierName}' must be an object`);
   }
   if (typeof tier.model !== "string" || !tier.model) {
     throw new Error(`tiers.json: '${presetName}.${tierName}.model' must be a non-empty string`);
+  }
+  if ("capability" in tier) {
+    throw new Error(
+      `tiers.json: '${presetName}.${tierName}.capability' is removed; migrate to 'reasoningControl' in docs/CONFIG_REFERENCE.md`,
+    );
   }
   // provider/model slash predicate (PR 1 of fix-task-model-fallback-cleanup).
   // Mirrors the runtime rule used by tierModel() in src/verify/dispatch.ts so
@@ -139,6 +143,75 @@ export const validateTier = (presetName: string, tierName: string, tier: unknown
   }
   if (!Array.isArray(tier.whenToUse)) {
     throw new Error(`tiers.json: '${presetName}.${tierName}.whenToUse' must be an array`);
+  }
+  validateReasoningControl(presetName, tierName, tier.reasoningControl, profiles);
+};
+
+const validateReasoningControl = (
+  presetName: string,
+  tierName: string,
+  control: unknown,
+  profiles?: unknown[],
+): void => {
+  if (control === undefined) return;
+  const prefix = `tiers.json: '${presetName}.${tierName}.reasoningControl'`;
+  if (!isPlainObject(control) || Array.isArray(control)) {
+    throw new Error(`${prefix} must be an object`);
+  }
+  const channels = ["variant", "reasoning.effort", "thinking.budgetTokens"];
+  if (typeof control.channel !== "string" || !channels.includes(control.channel)) {
+    throw new Error(`${prefix}.channel must be one of ${channels.join("|")}`);
+  }
+  if (!Array.isArray(control.levels) || control.levels.length === 0) {
+    throw new Error(`${prefix}.levels must be a non-empty array`);
+  }
+  const levels = control.levels as unknown[];
+  const numeric = control.channel === "thinking.budgetTokens";
+  if (
+    !control.levels.every(
+      (level: unknown) =>
+        (numeric && typeof level === "number" && Number.isFinite(level) && level >= 0) ||
+        (!numeric && typeof level === "string" && level.length > 0),
+    )
+  ) {
+    throw new Error(
+      `${prefix}.levels must contain valid ${numeric ? "non-negative numbers" : "non-empty strings"}`,
+    );
+  }
+  if (new Set(levels).size !== levels.length) {
+    throw new Error(`${prefix}.levels must contain unique values`);
+  }
+  if (
+    numeric &&
+    levels.some(
+      (level: unknown, i: number) =>
+        i > 0 && typeof level === "number" && level <= (levels[i - 1] as number),
+    )
+  ) {
+    throw new Error(`${prefix}.levels must be strictly ascending`);
+  }
+  if (!isPlainObject(control.profileMap) || Array.isArray(control.profileMap)) {
+    throw new Error(`${prefix}.profileMap must be an object`);
+  }
+  for (const [profile, native] of Object.entries(control.profileMap)) {
+    if (!profile.trim()) throw new Error(`${prefix}.profileMap keys must be non-empty strings`);
+    if (!levels.includes(native)) {
+      throw new Error(`${prefix}.profileMap.${profile} must reference a value in levels`);
+    }
+  }
+  if (profiles !== undefined) {
+    const mapKeys = Object.keys(control.profileMap);
+    const missing = profiles.filter((profile) => !mapKeys.includes(String(profile)));
+    const extra = mapKeys.filter((profile) => !profiles.includes(profile));
+    if (missing.length > 0 || extra.length > 0) {
+      throw new Error(
+        `${prefix}.profileMap keys must exactly match reasoningPolicy.profiles (missing: ${missing.join(", ") || "none"}; extra: ${extra.join(", ") || "none"})`,
+      );
+    }
+  }
+  const maxBumps = typeof control.maxBumps === "number" ? control.maxBumps : Number.NaN;
+  if (!Number.isInteger(maxBumps) || maxBumps < 0 || maxBumps > levels.length - 1) {
+    throw new Error(`${prefix}.maxBumps must be an integer from 0 to ${levels.length - 1}`);
   }
 };
 
@@ -265,8 +338,13 @@ export const validateEnforcementEscalate = (enf: Record<string, unknown>): void 
   // Permissive skip: a non-object escalate is ignored so older configs survive.
   if (!isPlainObject(enf.escalate)) return;
   const escalate = enf.escalate;
+  const legacyEscalationKey = "reasoning" + "Escalation";
+  if (legacyEscalationKey in escalate) {
+    throw new Error(
+      `tiers.json: enforcement.escalate.${legacyEscalationKey} is removed; migrate to per-tier reasoningControl.maxBumps in docs/CONFIG_REFERENCE.md`,
+    );
+  }
   validateEscalateCostCeiling(escalate);
-  validateReasoningEscalation(escalate);
   if (escalate.ladder !== undefined) {
     if (
       !Array.isArray(escalate.ladder) ||
@@ -312,29 +390,6 @@ export const validateEscalateCostCeiling = (escalate: Record<string, unknown>): 
   if (costCeiling.multiple !== undefined) {
     if (typeof costCeiling.multiple !== "number" || costCeiling.multiple <= 0) {
       throw new Error("tiers.json: enforcement.escalate.costCeiling.multiple must be a number > 0");
-    }
-  }
-};
-
-export const validateReasoningEscalation = (escalate: Record<string, unknown>): void => {
-  if (escalate.reasoningEscalation === undefined) return;
-  // Permissive skip: a non-object reasoningEscalation is ignored so older configs survive.
-  if (!isPlainObject(escalate.reasoningEscalation)) return;
-  const re = escalate.reasoningEscalation;
-  if (re.enabled !== undefined && typeof re.enabled !== "boolean") {
-    throw new Error(
-      "tiers.json: enforcement.escalate.reasoningEscalation.enabled must be a boolean",
-    );
-  }
-  if (re.maxLevelBumpsPerTier !== undefined) {
-    if (
-      typeof re.maxLevelBumpsPerTier !== "number" ||
-      !Number.isInteger(re.maxLevelBumpsPerTier) ||
-      re.maxLevelBumpsPerTier < 0
-    ) {
-      throw new Error(
-        "tiers.json: enforcement.escalate.reasoningEscalation.maxLevelBumpsPerTier must be an integer >= 0",
-      );
     }
   }
 };
@@ -412,7 +467,6 @@ export const normalizeEnforcement = (
 // ---------------------------------------------------------------------------
 
 const REASONING_MODES_LIST = REASONING_MODES.join("|");
-const REASONING_LEVELS_LIST = REASONING_LEVELS.join("|");
 const MATCH_MODES_LIST = MATCH_MODES.join("|");
 
 export const validateReasoningPolicy = (obj: Record<string, unknown>): void => {
@@ -422,7 +476,108 @@ export const validateReasoningPolicy = (obj: Record<string, unknown>): void => {
   }
   const policy = obj.reasoningPolicy;
   validateReasoningPolicyMode(policy);
+  if (policy.profiles !== undefined || policy.defaultProfile !== undefined) {
+    validateReasoningPolicyV2(policy);
+    return;
+  }
   validateAdaptivePolicy(policy);
+};
+
+const validateReasoningPolicyV2 = (policy: Record<string, unknown>): void => {
+  if (!Array.isArray(policy.profiles) || policy.profiles.length === 0) {
+    throw new Error("tiers.json: reasoningPolicy.profiles must be a non-empty array of strings");
+  }
+  if (
+    !policy.profiles.every(
+      (profile: unknown) => typeof profile === "string" && profile.trim().length > 0,
+    ) ||
+    new Set(policy.profiles).size !== policy.profiles.length
+  ) {
+    throw new Error("tiers.json: reasoningPolicy.profiles must contain unique non-empty strings");
+  }
+  if (
+    policy.mode !== "static" &&
+    policy.mode !== undefined &&
+    (typeof policy.defaultProfile !== "string" || !policy.profiles.includes(policy.defaultProfile))
+  ) {
+    throw new Error("tiers.json: reasoningPolicy.defaultProfile must be a registered profile");
+  }
+  if (policy.defaultProfile !== undefined && !policy.profiles.includes(policy.defaultProfile)) {
+    throw new Error("tiers.json: reasoningPolicy.defaultProfile must be a registered profile");
+  }
+  if (policy.surfaceLimits !== undefined && typeof policy.surfaceLimits !== "boolean") {
+    throw new Error("tiers.json: reasoningPolicy.surfaceLimits must be a boolean");
+  }
+  if (policy.adaptive === undefined) return;
+  if (!isPlainObject(policy.adaptive) || Array.isArray(policy.adaptive)) {
+    throw new Error("tiers.json: reasoningPolicy.adaptive must be an object");
+  }
+  const adaptive = policy.adaptive;
+  validateProfileOrNull(
+    adaptive.trivialProfile,
+    "reasoningPolicy.adaptive.trivialProfile",
+    policy.profiles,
+  );
+  validateProfileDefaults(adaptive.tierProfileDefaults, policy.profiles);
+  validateProfileRules(adaptive.rules, policy.profiles);
+  validateAdaptiveSurfaceDecision(adaptive.surfaceDecision);
+};
+
+const validateProfileOrNull = (value: unknown, path: string, profiles: unknown[]): void => {
+  if (value === undefined || value === null) return;
+  if (typeof value !== "string" || !profiles.includes(value)) {
+    throw new Error(`tiers.json: ${path} must be a registered profile or null`);
+  }
+};
+
+const validateProfileDefaults = (value: unknown, profiles: unknown[]): void => {
+  if (value === undefined) return;
+  if (!isPlainObject(value) || Array.isArray(value)) {
+    throw new Error("tiers.json: reasoningPolicy.adaptive.tierProfileDefaults must be an object");
+  }
+  for (const [tier, profile] of Object.entries(value)) {
+    if (typeof profile !== "string" || !profiles.includes(profile)) {
+      throw new Error(
+        `tiers.json: reasoningPolicy.adaptive.tierProfileDefaults.${tier} must be a registered profile`,
+      );
+    }
+  }
+};
+
+const validateProfileRules = (value: unknown, profiles: unknown[]): void => {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) {
+    throw new Error("tiers.json: reasoningPolicy.adaptive.rules must be an array");
+  }
+  for (const [index, rule] of value.entries()) {
+    const prefix = `reasoningPolicy.adaptive.rules[${index}]`;
+    if (!isPlainObject(rule) || Array.isArray(rule)) {
+      throw new Error(`tiers.json: ${prefix} must be an object`);
+    }
+    if (
+      !Array.isArray(rule.keywords) ||
+      rule.keywords.length === 0 ||
+      !rule.keywords.every((k: unknown) => typeof k === "string")
+    ) {
+      throw new Error(`tiers.json: ${prefix}.keywords must be a non-empty array of strings`);
+    }
+    if (typeof rule.profile !== "string" || !profiles.includes(rule.profile)) {
+      throw new Error(`tiers.json: ${prefix}.profile must be a registered profile`);
+    }
+    if (
+      rule.match !== undefined &&
+      (typeof rule.match !== "string" || !(MATCH_MODES as readonly string[]).includes(rule.match))
+    ) {
+      throw new Error(`tiers.json: ${prefix}.match must be one of ${MATCH_MODES_LIST}`);
+    }
+    if (
+      rule.excludeKeywords !== undefined &&
+      (!Array.isArray(rule.excludeKeywords) ||
+        !rule.excludeKeywords.every((k: unknown) => typeof k === "string"))
+    ) {
+      throw new Error(`tiers.json: ${prefix}.excludeKeywords must be an array of strings`);
+    }
+  }
 };
 
 export const validateReasoningPolicyMode = (policy: Record<string, unknown>): void => {
@@ -457,9 +612,9 @@ export const validateAdaptivePolicy = (policy: Record<string, unknown>): void =>
  */
 const validateLevelOrNull = (value: unknown, path: string): void => {
   if (value === undefined || value === null) return;
-  if (!isReasoningLevel(value)) {
+  if (!isConfiguredLevel(value)) {
     throw new Error(
-      `tiers.json: ${path} must be one of ${REASONING_LEVELS_LIST} or null (got ${JSON.stringify(value)})`,
+      `tiers.json: ${path} must be a non-empty configured profile or null (got ${JSON.stringify(value)})`,
     );
   }
 };
@@ -490,9 +645,9 @@ export const validateKeywordRule = (rule: unknown, index: number): void => {
     throw new Error(`tiers.json: ${prefix}.keywords must be an array of strings`);
   }
   // level: REQUIRED, must be in the level set
-  if (!isReasoningLevel(rule.level)) {
+  if (!isConfiguredLevel(rule.level)) {
     throw new Error(
-      `tiers.json: ${prefix}.level must be one of ${REASONING_LEVELS_LIST} (got ${JSON.stringify(rule.level)})`,
+      `tiers.json: ${prefix}.level must be a non-empty configured profile (got ${JSON.stringify(rule.level)})`,
     );
   }
   // match: OPTIONAL; must be one of the four mode literals
@@ -537,9 +692,9 @@ export const validateAdaptiveTierDefaults = (td: unknown): void => {
     throw new Error("tiers.json: reasoningPolicy.adaptive.tierDefaults must be an object");
   }
   for (const [tierName, level] of Object.entries(td)) {
-    if (!isReasoningLevel(level)) {
+    if (!isConfiguredLevel(level)) {
       throw new Error(
-        `tiers.json: reasoningPolicy.adaptive.tierDefaults.${tierName} must be one of ${REASONING_LEVELS_LIST} (got ${JSON.stringify(level)})`,
+        `tiers.json: reasoningPolicy.adaptive.tierDefaults.${tierName} must be a non-empty configured profile (got ${JSON.stringify(level)})`,
       );
     }
   }

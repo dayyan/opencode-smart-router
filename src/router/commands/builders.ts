@@ -18,20 +18,11 @@
 // ---------------------------------------------------------------------------
 
 import type { PluginContext } from "../../plugin/context";
-import type { ReasoningCapability, ReasoningLevel } from "../../reasoning/capability.js";
-import { inferCapability } from "../../reasoning/capability.js";
-import { translateLevel } from "../../reasoning/translate.js";
-import type { RouterConfig } from "../config";
+import { patchAtIndex, resolveControlPatch } from "../../reasoning/translate.js";
+import type { ReasoningControl, ReasoningPolicyConfigV2, RouterConfig } from "../config";
 import { resolvePresetName } from "../config";
 import { resolveEnforcementMode } from "../enforcement";
 import { getActiveTiers } from "../protocol";
-
-const REASONING_LEVELS: ReadonlySet<ReasoningLevel> = new Set([
-  "minimal",
-  "normal",
-  "elevated",
-  "max",
-]);
 
 // ---------------------------------------------------------------------------
 // /router command output
@@ -95,6 +86,7 @@ export const buildTiersOutput = (cfg: RouterConfig): string => {
         : "";
     lines.push(`## @${name} -> \`${tier.model}\`${thinkingStr}`);
     lines.push(tier.description);
+    if (tier.reasoningControl) lines.push(describeControl(tier.reasoningControl));
     lines.push(`Steps: ${tier.steps ?? "default"}`);
     lines.push(`Use when: ${tier.whenToUse.join(", ")}\n`);
   }
@@ -208,78 +200,27 @@ export const buildPresetOutput = async (
 };
 
 // ---------------------------------------------------------------------------
-// /model-router-reasoning command output (PR 3 of adaptive-reasoning-engine).
+// /model-router-reasoning command output (Plan 041, Phase 2.5).
 //
 // Two responsibilities, parsed from the first token:
 //   1. `mode <static|manual|adaptive>` — persist a runtime policy-mode switch.
 //      The PERSIST call (saveReasoningMode) is in the dispatcher; the builder
 //      only renders.
-//   2. `<level>` (one of `minimal|normal|elevated|max`, or `off`) — set /
+//   2. `<profile>` (one of the configured registry members, or `off`) — set /
 //      clear the per-session override on `ctx.reasoningStore`. The override
 //      mutation (setOverride/clearOverride) is in the dispatcher; the builder
 //      only renders.
 //
-// Honors `reasoningPolicy.surfaceLimits`: when true, emits an advisory note
-// describing any collapse (e.g. `normal` and `elevated` both mapping to
-// `medium` on a 3-level discrete ladder — documented quirk of the
-// `Math.round(rank/3 * (len-1))` formula in PR 1). Defaults to silent no-op.
+// Profile names are opaque. All command vocabulary comes from the policy
+// registry; the builder does not know or enumerate bundled profile names.
 // ---------------------------------------------------------------------------
 
 /**
- * Describe a tier's capability in plain English for the command output.
- * Compact form: the tier name + the kind + a one-line hint about what it
- * can satisfy.
+ * Describe a tier's configured reasoning control without interpreting its
+ * profile IDs or native level names.
  */
-const describeCapability = (tierName: string, cap: ReasoningCapability): string => {
-  switch (cap.kind) {
-    case "none":
-      return `@${tierName}: no reasoning control (the tier is left as-is).`;
-    case "binary":
-      return `@${tierName}: binary variant (elevated: ${cap.elevated}${cap.baseline ? `, baseline: ${cap.baseline}` : ""}).`;
-    case "discrete": {
-      const channel = cap.field === "variant" ? "variant" : "reasoning_effort";
-      return `@${tierName}: discrete ${channel} ladder [${cap.levels.join(" < ")}].`;
-    }
-    case "budgeted":
-      return `@${tierName}: budgeted (thinking tokens per level: ${Object.entries(cap.recommended)
-        .map(([k, v]) => `${k}=${v}`)
-        .join(", ")}).`;
-  }
-};
-
-/**
- * Detect when a discrete-ladder translation collapses two requested levels
- * onto the same rung (the documented `Math.round(rank/3 * (len-1))` quirk
- * for 3-level ladders: normal + elevated both map to index 1 = medium).
- *
- * Returns a one-line advisory note when a collapse happened, or `undefined`
- * when every requested level maps to a distinct rung.
- */
-const detectCollapse = (cap: ReasoningCapability, level: ReasoningLevel): string | undefined => {
-  if (cap.kind !== "discrete") return undefined;
-  // Compare the resolved patch for `level` against the resolved patch for
-  // the level one rank below. If they're equal, the requested level has
-  // collapsed onto a coarser rung.
-  const RANK: Record<ReasoningLevel, number> = { minimal: 0, normal: 1, elevated: 2, max: 3 };
-  const rank = RANK[level];
-  if (rank <= 0) return undefined;
-  const lower = (Object.keys(RANK) as ReasoningLevel[]).find((k) => RANK[k] === rank - 1);
-  if (!lower) return undefined;
-  const here = translateLevel(cap, level);
-  const below = translateLevel(cap, lower);
-  if (!here || !below) return undefined;
-  // Compare the patch payload — same channel output means collapse.
-  if (here.variant !== undefined && here.variant === below.variant) {
-    return `Note: '${level}' collapses to '${here.variant}' (same as '${lower}') on this tier's ladder — surface the limit by enabling reasoningPolicy.surfaceLimits.`;
-  }
-  if (here.options && below.options) {
-    if (JSON.stringify(here.options) === JSON.stringify(below.options)) {
-      const key = Object.keys(here.options)[0] ?? "";
-      return `Note: '${level}' collapses onto '${lower}' for this tier (${key}=${here.options[key]}).`;
-    }
-  }
-  return undefined;
-};
+export const describeControl = (control: ReasoningControl): string =>
+  `Reasoning control: channel=${control.channel}, levels=[${control.levels.join(" < ")}], maxBumps=${control.maxBumps}`;
 
 export const buildReasoningOutput = async (
   cfg: RouterConfig,
@@ -288,11 +229,13 @@ export const buildReasoningOutput = async (
   _sessionID: string,
   _resolved?: { policyMode?: "static" | "manual" | "adaptive" },
 ): Promise<string> => {
-  const surfaceLimits = cfg.reasoningPolicy?.surfaceLimits === true;
-  const policyMode = cfg.reasoningPolicy?.mode ?? "static";
+  const policy = cfg.reasoningPolicy as ReasoningPolicyConfigV2 | undefined;
+  const surfaceLimits = policy?.surfaceLimits === true;
+  const policyMode = policy?.mode ?? "static";
+  const profiles = policy?.profiles ?? [];
 
-  const tokens = (args ?? "").trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const sub = tokens[0] ?? "";
+  const tokens = (args ?? "").trim().split(/\s+/).filter(Boolean);
+  const sub = (tokens[0] ?? "").toLowerCase();
 
   // Show help when no args — describe every active tier's capability and
   // the full subcommand surface (mode + level).
@@ -304,12 +247,15 @@ export const buildReasoningOutput = async (
       "",
     ];
     for (const [name, tier] of Object.entries(tiers)) {
-      const cap = tier.capability ?? inferCapability(tier);
-      lines.push(describeCapability(name, cap));
+      lines.push(
+        tier.reasoningControl
+          ? `@${name}: ${describeControl(tier.reasoningControl)}`
+          : `@${name}: no reasoning control (the tier is left as-is).`,
+      );
     }
     lines.push(
       "",
-      "Set per-session override: `/model-router-reasoning minimal|normal|elevated|max`. Clear with `/model-router-reasoning off`.",
+      `Set per-session override: \`/model-router-reasoning ${profiles.join("|")}\`. Clear with \`/model-router-reasoning off\`.`,
       "Switch persisted policy mode: `/model-router-reasoning mode <static|manual|adaptive>`.",
       "Applies to the next `task` dispatch in this session only.",
     );
@@ -318,15 +264,15 @@ export const buildReasoningOutput = async (
 
   // --- `mode` subcommand: persists a policy-mode overlay via state file. ---
   if (sub === "mode") {
-    const modeArg = tokens[1] ?? "";
+    const modeArg = (tokens[1] ?? "").toLowerCase();
     if (!modeArg) {
       return [
         `Current reasoning policy mode: **${policyMode}**`,
         "",
         "Usage: `/model-router-reasoning mode <static|manual|adaptive>`",
-        "`static` uses each tier's default reasoning level.",
-        "`manual` enables per-session overrides via `minimal|normal|elevated|max`.",
-        "`adaptive` picks a level from task signals (prompt + description + tier + trivial flag) via `reasoningPolicy.adaptive`.",
+        "`static` uses each tier's configured baseline.",
+        `\`manual\` enables per-session overrides via ${profiles.join("|")}.`,
+        "`adaptive` picks a profile from task signals (prompt + description + tier + trivial flag) via `reasoningPolicy.adaptive`.",
       ].join("\n");
     }
     if (modeArg === "static" || modeArg === "manual" || modeArg === "adaptive") {
@@ -334,7 +280,7 @@ export const buildReasoningOutput = async (
         modeArg === "static"
           ? "Per-tier defaults are in effect — per-session overrides are ignored at task dispatch."
           : modeArg === "manual"
-            ? "Per-session overrides are enabled — `/model-router-reasoning minimal|normal|elevated|max` will take effect on the next task dispatch."
+            ? `Per-session overrides are enabled — \`/model-router-reasoning ${profiles.join("|")}\` will take effect on the next task dispatch.`
             : "Adaptive selector picks the level from task signals (prompt + description + tier + trivial flag). Per-session overrides still win when set. Tune `reasoningPolicy.adaptive` (keywordRules, tierDefaults, defaultLevel) to taste.";
       return [
         `Reasoning policy mode set to **${modeArg}** and persisted.`,
@@ -347,7 +293,7 @@ export const buildReasoningOutput = async (
     return `Unknown mode: "${modeArg}". Use one of: static, manual, adaptive (or run '/model-router-reasoning mode' for the current value).`;
   }
 
-  // --- per-session override flow (minimal|normal|elevated|max|off) ---
+  // --- per-session override flow (registered profile|off) ---
   if (sub === "off") {
     return [
       "Reasoning override cleared.",
@@ -356,8 +302,9 @@ export const buildReasoningOutput = async (
     ].join("\n");
   }
 
-  if (!REASONING_LEVELS.has(sub as ReasoningLevel)) {
-    return `Unknown level: "${sub}". Use one of: minimal, normal, elevated, max (or "off" to clear). Run '/model-router-reasoning mode' to switch the policy.`;
+  const profile = tokens[0] ?? "";
+  if (!profiles.includes(profile)) {
+    return `Unknown profile: "${profile}". Use one of: ${profiles.join(", ")} (or "off" to clear).`;
   }
 
   // Per-tier acknowledgement: which tiers can actually satisfy the level,
@@ -365,41 +312,21 @@ export const buildReasoningOutput = async (
   // surfaceLimits is enabled).
   const tiers = getActiveTiers(cfg);
   const lines: string[] = [
-    `Reasoning override set to **${sub}** for this session.`,
+    `Reasoning override set to **${profile}** for this session.`,
     "",
     "Per-tier behaviour:",
   ];
-  let anyCollapse = false;
   for (const [name, tier] of Object.entries(tiers)) {
-    const cap = tier.capability ?? inferCapability(tier);
-    if (cap.kind === "none") {
+    const control = tier.reasoningControl;
+    if (!control) {
       if (surfaceLimits) lines.push(`- @${name}: unsupported (no reasoning control).`);
       continue;
     }
-    const resolved = translateLevel(cap, sub as ReasoningLevel);
-    if (!resolved) {
-      if (surfaceLimits) {
-        lines.push(`- @${name}: level '${sub}' is a no-op for this tier's capability.`);
-      }
-      continue;
-    }
-    if (resolved.variant !== undefined) {
-      lines.push(`- @${name}: variant = '${resolved.variant}'.`);
-    }
-    if (resolved.options) {
-      lines.push(`- @${name}: options = ${JSON.stringify(resolved.options)}.`);
-    }
-    const note = detectCollapse(cap, sub as ReasoningLevel);
-    if (note) {
-      anyCollapse = true;
-      if (surfaceLimits) lines.push(`  ${note}`);
-    }
-  }
-  if (anyCollapse && !surfaceLimits) {
-    lines.push(
-      "",
-      "(One or more tiers collapse this level onto a coarser rung. Enable `reasoningPolicy.surfaceLimits` to see which.)",
-    );
+    const resolved = resolveControlPatch(control, profile);
+    if (!resolved) continue;
+    const patch = patchAtIndex(control, resolved.levelIndex);
+    lines.push(`- @${name}: native = ${JSON.stringify(resolved.native)}.`);
+    if (patch) lines.push(`  patch = ${JSON.stringify(patch)}.`);
   }
   lines.push("", "Takes effect on the next `task` dispatch in this session.");
   return lines.join("\n");

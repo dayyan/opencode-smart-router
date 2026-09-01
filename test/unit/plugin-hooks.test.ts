@@ -728,7 +728,7 @@ describe("handleToolExecuteBefore — reasoning patch path (plan 012)", () => {
   ) => {
     const h = makeHarness({
       configOverrides: {
-        reasoningPolicy: { mode },
+        reasoningPolicy: { mode, profiles: ["p1", "p2"], defaultProfile: "p1" },
         presets: {
           default: {
             fast: {
@@ -736,6 +736,12 @@ describe("handleToolExecuteBefore — reasoning patch path (plan 012)", () => {
               description: "fast",
               whenToUse: [],
               variant: "thinking",
+              reasoningControl: {
+                channel: "variant",
+                levels: ["low", "thinking"],
+                profileMap: { p1: "low", p2: "thinking" },
+                maxBumps: 0,
+              },
               ...tierExtra,
             } as TierConfig,
           },
@@ -760,7 +766,7 @@ describe("handleToolExecuteBefore — reasoning patch path (plan 012)", () => {
 
   it("manual mode + session override → patches the orchestrator task's target agent", async () => {
     const { h, baseline } = setupReasoningHarness("manual");
-    h.ctx.reasoningStore.setOverride("sid-orch", "elevated");
+    h.ctx.reasoningStore.setOverride("sid-orch", "p2");
 
     await handleToolExecuteBefore(
       h.ctx,
@@ -776,7 +782,7 @@ describe("handleToolExecuteBefore — reasoning patch path (plan 012)", () => {
 
   it("static mode + session override → no-op (agent def unchanged, primary regression guard)", async () => {
     const { h, baseline } = setupReasoningHarness("static");
-    h.ctx.reasoningStore.setOverride("sid-orch", "elevated");
+    h.ctx.reasoningStore.setOverride("sid-orch", "p2");
 
     await handleToolExecuteBefore(
       h.ctx,
@@ -804,7 +810,7 @@ describe("handleToolExecuteBefore — reasoning patch path (plan 012)", () => {
 
   it("after-hook restores the captured baseline after a patched dispatch", async () => {
     const { h, baseline } = setupReasoningHarness("manual");
-    h.ctx.reasoningStore.setOverride("sid-orch", "elevated");
+    h.ctx.reasoningStore.setOverride("sid-orch", "p2");
 
     // Patch via before-hook.
     await handleToolExecuteBefore(
@@ -825,7 +831,7 @@ describe("handleToolExecuteBefore — reasoning patch path (plan 012)", () => {
 
   it("patch failure is best-effort: hook does not throw and logs a warning instead", async () => {
     const { h } = setupReasoningHarness("manual");
-    h.ctx.reasoningStore.setOverride("sid-orch", "elevated");
+    h.ctx.reasoningStore.setOverride("sid-orch", "p2");
 
     // Freeze the agent def so applyReasoningPatch's `agentDef.variant = ...`
     // assignment throws a TypeError (TypeScript modules are in strict mode).
@@ -845,7 +851,7 @@ describe("handleToolExecuteBefore — reasoning patch path (plan 012)", () => {
 
   it("orchestrator non-task calls still early-return without touching agent def", async () => {
     const { h, baseline } = setupReasoningHarness("manual");
-    h.ctx.reasoningStore.setOverride("sid-orch", "elevated");
+    h.ctx.reasoningStore.setOverride("sid-orch", "p2");
 
     // Non-task tool: the patch block is gated by `tool === "task"` and must
     // not mutate anything.
@@ -888,7 +894,12 @@ describe("handleToolExecuteBefore/After — plan 014 surface-limits events + in-
   }) => {
     const h = makeHarness({
       configOverrides: {
-        reasoningPolicy: { mode: opts.mode, surfaceLimits: opts.surfaceLimits },
+        reasoningPolicy: {
+          mode: opts.mode,
+          profiles: ["p1", "p2"],
+          defaultProfile: "p1",
+          surfaceLimits: opts.surfaceLimits,
+        },
         presets: {
           default: {
             fast: {
@@ -896,6 +907,12 @@ describe("handleToolExecuteBefore/After — plan 014 surface-limits events + in-
               description: "fast",
               whenToUse: [],
               variant: "thinking",
+              reasoningControl: {
+                channel: "variant",
+                levels: ["low", "thinking"],
+                profileMap: { p1: "low", p2: "thinking" },
+                maxBumps: 0,
+              },
             } as TierConfig,
           },
         },
@@ -932,7 +949,7 @@ describe("handleToolExecuteBefore/After — plan 014 surface-limits events + in-
 
   it("surfaceLimits=true + manual + override → emits reasoning.patch_applied debug event", async () => {
     const { h } = setupSurfaceLimitsHarness({ mode: "manual", surfaceLimits: true });
-    h.ctx.reasoningStore.setOverride("sid-orch", "elevated");
+    h.ctx.reasoningStore.setOverride("sid-orch", "p2");
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await handleToolExecuteBefore(
@@ -948,7 +965,7 @@ describe("handleToolExecuteBefore/After — plan 014 surface-limits events + in-
     expect(env.level).toBe("debug");
     expect(env.session).toBe("sid-orch");
     expect(env.tier).toBe("fast");
-    expect(env.override).toBe("elevated");
+    expect(env.profile).toBe("p2");
     // The resolved patch is the binary capability's elevated variant
     // ("thinking"). The exact shape is owned by `resolveReasoningOverride`
     // — here we only assert it carries the variant field the plugin applied.
@@ -957,7 +974,7 @@ describe("handleToolExecuteBefore/After — plan 014 surface-limits events + in-
 
   it("surfaceLimits=false → no debug event (the surfacing is opt-in)", async () => {
     const { h } = setupSurfaceLimitsHarness({ mode: "manual", surfaceLimits: false });
-    h.ctx.reasoningStore.setOverride("sid-orch", "elevated");
+    h.ctx.reasoningStore.setOverride("sid-orch", "p2");
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await handleToolExecuteBefore(
@@ -973,48 +990,10 @@ describe("handleToolExecuteBefore/After — plan 014 surface-limits events + in-
     expect(reasoningEvents).toHaveLength(0);
   });
 
-  it("surfaceLimits=true + override that resolves to null → emits reasoning.patch_unsupported", async () => {
-    // Build a tier with `kind: "none"` so resolveReasoningOverride always
-    // returns null, even with a manual policy + a non-null override.
-    const h = makeHarness({
-      configOverrides: {
-        reasoningPolicy: { mode: "manual", surfaceLimits: true },
-        presets: {
-          default: {
-            fast: {
-              model: "anthropic/claude-haiku-4-5",
-              description: "fast",
-              whenToUse: [],
-              capability: { kind: "none" },
-            } as TierConfig,
-          },
-        },
-      },
-    });
-    h.ctx.opencodeConfig = { agent: { fast: { mode: "subagent", variant: "low" } } };
-    h.ctx.reasoningStore.setBaseline("fast", { variant: "low" });
-    h.ctx.reasoningStore.setOverride("sid-orch", "elevated");
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-
-    await handleToolExecuteBefore(
-      h.ctx,
-      { sessionID: "sid-orch", tool: "task", args: { subagent_type: "fast" } },
-      { args: { subagent_type: "fast" } },
-    );
-
-    const envelopes = captureLogEnvelopes(logSpy.mock.calls);
-    const unsupported = envelopes.filter((e) => e.event === "reasoning.patch_unsupported");
-    expect(unsupported).toHaveLength(1);
-    const env = unsupported[0]!;
-    expect(env.session).toBe("sid-orch");
-    expect(env.tier).toBe("fast");
-    expect(env.override).toBe("elevated");
-  });
-
   it("same-tier overlap is skipped, not double-patched; emits reasoning.patch_skipped_concurrent", async () => {
     const { h, baseline } = setupSurfaceLimitsHarness({ mode: "manual", surfaceLimits: true });
-    h.ctx.reasoningStore.setOverride("sid-A", "elevated");
-    h.ctx.reasoningStore.setOverride("sid-B", "max");
+    h.ctx.reasoningStore.setOverride("sid-A", "p2");
+    h.ctx.reasoningStore.setOverride("sid-B", "p1");
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     // First dispatch: sid-A patches the agent def.
@@ -1152,7 +1131,7 @@ describe("handleToolExecuteBefore — built-in task runtime guard (PR 2)", () =>
 
   it("throws with the canonical reason when the model has no slash", async () => {
     const { h, baseline } = setupGuardHarness("no-slash");
-    h.ctx.reasoningStore.setOverride("sid-orch", "elevated");
+    h.ctx.reasoningStore.setOverride("sid-orch", "p2");
 
     await expect(
       handleToolExecuteBefore(
@@ -1170,7 +1149,7 @@ describe("handleToolExecuteBefore — built-in task runtime guard (PR 2)", () =>
 
   it("throws with the canonical reason when the model has a leading slash", async () => {
     const { h, baseline } = setupGuardHarness("/claude");
-    h.ctx.reasoningStore.setOverride("sid-orch", "elevated");
+    h.ctx.reasoningStore.setOverride("sid-orch", "p2");
 
     await expect(
       handleToolExecuteBefore(
@@ -1186,7 +1165,7 @@ describe("handleToolExecuteBefore — built-in task runtime guard (PR 2)", () =>
 
   it("throws with the canonical reason when the model has a trailing slash", async () => {
     const { h, baseline } = setupGuardHarness("anthropic/");
-    h.ctx.reasoningStore.setOverride("sid-orch", "elevated");
+    h.ctx.reasoningStore.setOverride("sid-orch", "p2");
 
     await expect(
       handleToolExecuteBefore(
@@ -1223,7 +1202,7 @@ describe("handleToolExecuteBefore — built-in task runtime guard (PR 2)", () =>
     // Sanity check: a well-formed tier model must continue through the
     // existing patch path. The guard must NOT short-circuit valid models.
     const { h } = setupGuardHarness("anthropic/claude-3-5-sonnet");
-    h.ctx.reasoningStore.setOverride("sid-orch", "elevated");
+    h.ctx.reasoningStore.setOverride("sid-orch", "p2");
 
     await expect(
       handleToolExecuteBefore(
@@ -1357,7 +1336,7 @@ describe("handleToolExecuteBefore — ghost build subagent mode guard", () => {
   it("fast tier dispatch with reasoning policy passes unchanged (regression AC2)", async () => {
     const h = makeHarness({
       configOverrides: {
-        reasoningPolicy: { mode: "manual" },
+        reasoningPolicy: { mode: "manual", profiles: ["p1", "p2"], defaultProfile: "p1" },
         presets: {
           default: {
             fast: {
@@ -1365,6 +1344,12 @@ describe("handleToolExecuteBefore — ghost build subagent mode guard", () => {
               description: "fast",
               whenToUse: [],
               variant: "thinking", // elevated value for binary capability
+              reasoningControl: {
+                channel: "variant",
+                levels: ["low", "thinking"],
+                profileMap: { p1: "low", p2: "thinking" },
+                maxBumps: 0,
+              },
             },
           },
         },
@@ -1379,7 +1364,7 @@ describe("handleToolExecuteBefore — ghost build subagent mode guard", () => {
     };
     h.ctx.opencodeConfig = { agent: { fast: { ...baseline } } };
     h.ctx.reasoningStore.setBaseline("fast", structuredClone(baseline));
-    h.ctx.reasoningStore.setOverride("sid-orch", "elevated");
+    h.ctx.reasoningStore.setOverride("sid-orch", "p2");
 
     await expect(
       handleToolExecuteBefore(

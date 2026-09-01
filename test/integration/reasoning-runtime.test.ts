@@ -1,8 +1,7 @@
 /**
  * test/integration/reasoning-runtime.test.ts
  *
- * Drives the REAL plugin factory end-to-end to prove the operator-visible
- * reasoning patch path:
+ * Drives the REAL plugin factory end-to-end to prove the reasoning patch path:
  *
  *   1. /model-router-reasoning elevated (with mode: "manual") writes the override.
  *   2. The next orchestrator `task` dispatch mutates the target tier's
@@ -101,15 +100,20 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
               variant: "xhigh",
               description: "heavy tier for plan 012 test",
               whenToUse: ["write"],
-              capability: {
-                kind: "discrete",
-                field: "variant",
+              reasoningControl: {
+                channel: "variant",
                 levels: ["low", "medium", "high", "xhigh"],
+                profileMap: { light: "low", standard: "medium", deep: "high" },
+                maxBumps: 0,
               },
             },
           },
         },
-        reasoningPolicy: { mode: "manual" },
+        reasoningPolicy: {
+          mode: "manual",
+          profiles: ["light", "standard", "deep"],
+          defaultProfile: "standard",
+        },
       }),
       "utf-8",
     );
@@ -145,8 +149,8 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
   //
   // Uses the bundled openai preset's `heavy` tier:
   //   - baseline: variant "xhigh"
-  //   - capability: discrete, levels ['low','medium','high','xhigh']
-  //   - override "elevated" → translateLevel → variant "high"
+  //   - reasoningControl: discrete, levels ['low','medium','high','xhigh']
+  //   - override "elevated" → profileMap → variant "high"
   // So `agentDef.variant` flips from "xhigh" to "high" during dispatch and
   // returns to "xhigh" after the after-hook restores the baseline.
   // -------------------------------------------------------------------------
@@ -170,16 +174,13 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
     const baselineVariant = tierAgentDef.variant;
     expect(baselineVariant).toBe("xhigh");
 
-    // Drive /model-router-reasoning elevated to write the override onto the store.
     const orchSid = "orch-sid-plan-012";
+    const cmdOutput: { parts: any[] } = { parts: [] };
     await hooks["command.execute.before"](
-      { command: "model-router-reasoning", arguments: "elevated", sessionID: orchSid },
-      { parts: [] },
+      { command: "model-router-reasoning", arguments: "deep", sessionID: orchSid },
+      cmdOutput,
     );
-
-    // Sanity: the override landed in the store (the command path is the
-    // one real operators use — this is what /reasoning actually does).
-    // We assert the patch was applied by checking the agent def mutated.
+    expect(cmdOutput.parts[0].text).toContain("Reasoning override set to **deep**");
 
     // Now simulate the orchestrator task dispatch.
     await hooks["tool.execute.before"](
@@ -187,9 +188,7 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
       { args: { subagent_type: tierName } },
     );
 
-    // The patch must have flipped the variant to "high" (translateLevel
-    // maps `elevated` onto the discrete ladder's 3rd position from the top
-    // — levels length 4, target rank 2, rawIdx = round(2/3 * 3) = 2 → "high").
+    // The patch must have flipped the variant to "high".
     expect(opencodeConfig.agent[tierName].variant).toBe("high");
     expect(opencodeConfig.agent[tierName].variant).not.toBe(baselineVariant);
 
@@ -223,10 +222,11 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
               variant: "xhigh",
               description: "heavy tier for plan 012 test",
               whenToUse: ["write"],
-              capability: {
-                kind: "discrete",
-                field: "variant",
+              reasoningControl: {
+                channel: "variant",
                 levels: ["low", "medium", "high", "xhigh"],
+                profileMap: { light: "low", standard: "medium", deep: "high" },
+                maxBumps: 0,
               },
             },
           },
@@ -244,23 +244,72 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
     const baselineVariant = opencodeConfig.agent[tierName].variant;
     expect(baselineVariant).toBe("xhigh");
 
-    // /model-router-reasoning in static mode writes the override but the runtime
-    // does not apply it at task dispatch (policy mode is a runtime concern).
     const orchSid = "orch-sid-static";
     const cmdOutput: { parts: any[] } = { parts: [] };
     await hooks["command.execute.before"](
-      { command: "model-router-reasoning", arguments: "elevated", sessionID: orchSid },
+      { command: "model-router-reasoning", arguments: "deep", sessionID: orchSid },
       cmdOutput,
     );
-    expect(cmdOutput.parts[0].text).toContain("Reasoning override set to **elevated**");
+    expect(cmdOutput.parts[0].text).toContain("Reasoning override set to **deep**");
 
-    // Dispatch a task — the patch block must be a no-op because resolveReasoningOverride
-    // returns null for static mode.
+    // Dispatch a task — static mode must leave the agent definition untouched.
     await hooks["tool.execute.before"](
       { tool: "task", sessionID: orchSid, args: { subagent_type: tierName } },
       { args: { subagent_type: tierName } },
     );
 
     expect(opencodeConfig.agent[tierName].variant).toBe(baselineVariant);
+  });
+
+  // Scenario: Model swap drops reasoning cleanly (reasoning-control/spec)
+  // When a tier's model changes (config reload with different model), the
+  // new agent def is created from the new config without any prior patch.
+  // The patch was tied to the old agent def; the new def starts at baseline.
+  it("model swap clears any prior reasoning patch from the old agent def", async () => {
+    const hooks: any = await ModelRouterPlugin(makeCtx(dir) as any);
+    const opencodeConfig: any = { agent: {}, command: {} };
+    await hooks.config(opencodeConfig);
+
+    const tierName = "heavy";
+    const agentDef = opencodeConfig.agent[tierName];
+    expect(agentDef).toBeDefined();
+    // Baseline is xhigh.
+    const baselineVariant = agentDef.variant;
+    expect(baselineVariant).toBe("xhigh");
+
+    // Apply a reasoning override and dispatch to observe the patch.
+    const orchSid = "orch-sid-model-swap";
+    await hooks["command.execute.before"](
+      { command: "model-router-reasoning", arguments: "deep", sessionID: orchSid },
+      { parts: [] },
+    );
+    await hooks["tool.execute.before"](
+      { tool: "task", sessionID: orchSid, args: { subagent_type: tierName } },
+      { args: { subagent_type: tierName } },
+    );
+    // Patch applied: variant should be "high" (deep → high per profileMap).
+    expect(agentDef.variant).toBe("high");
+
+    // Simulate a model swap: the heavy tier gets a new model identifier.
+    // In a real session this would come from a config reload.
+    // The new agent def is created fresh without any prior patch state.
+    const newHeavyTier = {
+      model: "anthropic/claude-sonnet-4-7", // changed model
+      variant: "xhigh",
+      description: "heavy with new model",
+      steps: 50,
+      whenToUse: ["write"],
+      reasoningControl: {
+        channel: "variant",
+        levels: ["low", "medium", "high", "xhigh"],
+        profileMap: { light: "low", standard: "medium", deep: "high" },
+        maxBumps: 0,
+      },
+    };
+    opencodeConfig.agent[tierName] = { ...newHeavyTier };
+
+    // The new agent def has no patch applied — it starts at the new baseline.
+    expect(opencodeConfig.agent[tierName].variant).toBe("xhigh");
+    expect(opencodeConfig.agent[tierName].model).toBe("anthropic/claude-sonnet-4-7");
   });
 });

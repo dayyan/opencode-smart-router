@@ -50,7 +50,7 @@ export const buildAgentOptions = (tier: TierConfig): Record<string, unknown> => 
 //               `reasoning_summary`) are preserved.
 //
 // `none`-capability tiers MUST NEVER be mutated. The caller filters `null`
-// patches before calling — see `resolveReasoningOverride`, which returns
+// patches before calling — see the reasoning policy resolver, which returns
 // `null` for `none` regardless of the requested level. This helper still
 // defends against an explicit `null` patch so it stays safe if a future
 // caller forgets to check.

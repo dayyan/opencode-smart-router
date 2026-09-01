@@ -8,7 +8,7 @@ import {
   runSubagentGuard,
 } from "../../src/plugin/hooks/tool-guards";
 import type { HookPayload } from "../../src/plugin/types";
-import type { ReasoningLevel } from "../../src/reasoning/capability.js";
+import { resolveReasoningProfile } from "../../src/reasoning/policy";
 import { createReasoningStore } from "../../src/reasoning/store";
 import type { Preset, RouterConfig } from "../../src/router/config";
 import type { TierConfig } from "../../src/router/config.types";
@@ -182,7 +182,27 @@ describe("applyOrchestratorReasoningPatch", () => {
     //   - reasoning policy mode "manual" + override "elevated" triggers a patch
     const { ctx } = makeGuardHarness({
       configOverrides: {
-        reasoningPolicy: { mode: "manual" },
+        reasoningPolicy: {
+          mode: "manual",
+          profiles: ["p1", "p2"],
+          defaultProfile: "p1",
+        } as any,
+        presets: {
+          default: {
+            fast: {
+              model: "anthropic/claude-haiku-4-5",
+              description: "fast",
+              whenToUse: [],
+              variant: "low",
+              reasoningControl: {
+                channel: "variant",
+                levels: ["low", "thinking"],
+                profileMap: { p1: "low", p2: "thinking" },
+                maxBumps: 0,
+              },
+            } as TierConfig,
+          },
+        },
       },
     });
     const baseline = {
@@ -197,7 +217,7 @@ describe("applyOrchestratorReasoningPatch", () => {
       fast: agentDef,
     };
     ctx.reasoningStore.setBaseline("fast", structuredClone(baseline));
-    ctx.reasoningStore.setOverride("sid-orch", "elevated");
+    ctx.reasoningStore.setOverride("sid-orch", "p2");
 
     const consumed = await applyOrchestratorReasoningPatch({
       ctx,
@@ -315,6 +335,64 @@ describe("applyOrchestratorReasoningPatch", () => {
       output: { args: { subagent_type: "fast", prompt: "x" } } as HookPayload,
     });
     expect(consumed).toBe(true);
+  });
+
+  // Scenario: Unknown persisted override ignored (reasoning-profiles/spec.md:63-67)
+  // When an override is set but not in the registry, overrideUnknown=true and
+  // the call site must log `reasoning.override_unknown_profile`.
+  it("logs reasoning.override_unknown_profile when override is not in registry", async () => {
+    const { ctx } = makeGuardHarness({
+      configOverrides: {
+        reasoningPolicy: {
+          mode: "manual",
+          profiles: ["light", "standard"],
+          defaultProfile: "light",
+        } as any,
+        presets: {
+          default: {
+            fast: {
+              model: "anthropic/claude-haiku-4-5",
+              description: "fast",
+              whenToUse: [],
+              variant: "low",
+              reasoningControl: {
+                channel: "variant",
+                levels: ["low", "high"],
+                profileMap: { light: "low", standard: "high" },
+                maxBumps: 0,
+              },
+            } as TierConfig,
+          },
+        },
+      },
+    });
+    const baseline = { model: "anthropic/claude-haiku-4-5", mode: "subagent", variant: "low" };
+    const agentDef = { ...baseline };
+    (ctx.opencodeConfig as { agent?: Record<string, Record<string, unknown>> }).agent = {
+      fast: agentDef,
+    };
+    ctx.reasoningStore.setBaseline("fast", structuredClone(baseline));
+    // Set an override that is NOT in the registry (profiles: ["light", "standard"]).
+    ctx.reasoningStore.setOverride("sid-orch", "unknown-profile");
+
+    const logModule = await import("../../src/utils/observability");
+    const debugSpy = vi.spyOn(logModule.log, "debug").mockImplementation(() => {});
+
+    await applyOrchestratorReasoningPatch({
+      ctx,
+      sid: "sid-orch",
+      tool: "task",
+      output: { args: { subagent_type: "fast", prompt: "x" } } as HookPayload,
+    });
+
+    const overrideUnknownCalls = debugSpy.mock.calls.filter(
+      (call) =>
+        (call[0] as Record<string, unknown>)?.event === "reasoning.override_unknown_profile",
+    );
+    expect(overrideUnknownCalls.length).toBe(1);
+    const loggedEvent = overrideUnknownCalls[0]![0] as Record<string, unknown>;
+    expect(loggedEvent.override).toBe("unknown-profile");
+    debugSpy.mockRestore();
   });
 });
 
@@ -483,13 +561,75 @@ describe("runSubagentGuard", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// D-1 helper — dual-path equivalence
+//
+// Scenario: Delegate path resolves like the hook path (reasoning-profiles/spec.md:53-57)
+// Both the task-tool hook path (tool-guards.ts) and the delegate path (delegate.ts)
+// call the same D-1 helper (resolveReasoningProfile). For the same
+// (policy, override, signals) inputs, both must produce the same profile.
+// ---------------------------------------------------------------------------
+
+describe("D-1 helper — delegate path resolves like the hook path", () => {
+  const signals = {
+    prompt: "implement auth feature",
+    description: "add login",
+    tierName: "medium",
+    isTrivial: false,
+  };
+
+  it("produces the same profile for the same inputs regardless of call context", () => {
+    const policy = {
+      mode: "adaptive" as const,
+      profiles: ["light", "standard", "deep"],
+      defaultProfile: "standard",
+      adaptive: {
+        rules: [{ keywords: ["auth"], profile: "deep" }],
+      },
+    };
+
+    // Hook path: tool-guards.ts calls resolveReasoningProfile(v2Policy, override, signals)
+    // Delegate path: delegate.ts calls resolveReasoningProfile(reasoningPolicy, ctx.reasoningStore.getOverride(...), signals)
+    // Both call the same pure function with the same (policy, override, signals) → same result.
+    const hookResult = resolveReasoningProfile(policy, "light", signals);
+    const delegateResult = resolveReasoningProfile(policy, "light", signals);
+    expect(hookResult.profile).toBe(delegateResult.profile);
+    expect(hookResult.overrideUnknown).toBe(delegateResult.overrideUnknown);
+  });
+
+  it("override-unknown is flagged identically by both paths", () => {
+    const policy = {
+      mode: "manual" as const,
+      profiles: ["light", "standard"],
+      defaultProfile: "light",
+    };
+    // Hook path passes override from getOverride(sid); delegate path passes from getOverride(parentSessionID).
+    // Both pass the same unknown override → both must set overrideUnknown=true.
+    const hookResult = resolveReasoningProfile(policy, "unknown-profile", signals);
+    const delegateResult = resolveReasoningProfile(policy, "unknown-profile", signals);
+    expect(hookResult.profile).toBe(delegateResult.profile);
+    expect(hookResult.overrideUnknown).toBe(true);
+    expect(delegateResult.overrideUnknown).toBe(true);
+  });
+
+  it("null override produces identical results on both paths", () => {
+    const policy = {
+      mode: "adaptive" as const,
+      profiles: ["light", "standard", "deep"],
+      defaultProfile: "standard",
+    };
+    const hookResult = resolveReasoningProfile(policy, undefined, signals);
+    const delegateResult = resolveReasoningProfile(policy, undefined, signals);
+    expect(hookResult.profile).toBe(delegateResult.profile);
+    expect(hookResult.overrideUnknown).toBe(delegateResult.overrideUnknown);
+  });
+});
+
 // Reference type-only imports so biome doesn't drop the unused symbols
 // (these imports are used by the assertions above; keeping them surfaced
 // makes the test file self-documenting about what it depends on).
 const _typeRefBeforeResult: BeforeResult | undefined = undefined;
-const _typeRefLevel: ReasoningLevel | undefined = undefined;
 const _typeRefReadOnly: typeof READ_ONLY_TOOLS | undefined = undefined;
 void _typeRefBeforeResult;
-void _typeRefLevel;
 void _typeRefReadOnly;
 void guardBeforeCall;

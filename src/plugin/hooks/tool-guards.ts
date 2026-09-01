@@ -27,9 +27,10 @@
 import type { BeforeResult } from "../../guard/enforce";
 import { guardBeforeCall } from "../../guard/enforce";
 import type { AdaptiveSignals } from "../../reasoning/adaptive.js";
-import { selectAdaptiveLevel } from "../../reasoning/adaptive.js";
+import { selectAdaptiveLevelV2 } from "../../reasoning/adaptive.js";
 import { normalizeSignalText } from "../../reasoning/match.js";
-import { resolveReasoningOverride } from "../../reasoning/policy.js";
+import { resolveReasoningProfile } from "../../reasoning/policy.js";
+import { patchAtIndex, resolveControlPatch } from "../../reasoning/translate.js";
 import { applyReasoningPatch } from "../../router/agents";
 import { getActiveTiers } from "../../router/protocol";
 import { READ_ONLY_TOOLS } from "../../router/tools";
@@ -183,51 +184,51 @@ export const applyOrchestratorReasoningPatch = async (params: {
               tierName: subagentType,
               isTrivial: ctx.sessionStore.isTrivial(sid),
             };
-            const resolved = resolveReasoningOverride(tier, cfg.reasoningPolicy, override, signals);
-            if (resolved) {
-              applyReasoningPatch(agentDef, resolved);
-              // Surface-only advisory: emit a debug log when the policy opted in
-              // to surfacing limits AND the resolved patch carries the
-              // documented 3-level-ladder collapse quirk.
-              if (cfg.reasoningPolicy?.surfaceLimits === true) {
+
+            const v2Policy = cfg.reasoningPolicy as Parameters<typeof resolveReasoningProfile>[0];
+            if (v2Policy) {
+              const resolution = resolveReasoningProfile(v2Policy, override, signals);
+              if (resolution.overrideUnknown) {
                 log.debug({
-                  event: "reasoning.patch_applied",
+                  event: "reasoning.override_unknown_profile",
                   session: sid,
                   tier: subagentType,
-                  override: override ?? cfg.reasoningPolicy?.defaultLevel ?? null,
-                  patch: resolved,
+                  override,
                 });
               }
-            } else if (override && cfg.reasoningPolicy?.surfaceLimits === true) {
-              // Override was set but resolved to null — log so operators can
-              // see why the requested level wasn't applied.
-              log.debug({
-                event: "reasoning.patch_unsupported",
-                session: sid,
-                tier: subagentType,
-                override,
-              });
-            }
-            // PR 3 of adaptive-reasoning: when the policy opted in to surface
-            // adaptive decisions, emit a debug event carrying the selector's
-            // pure decision (level + reason) on every dispatch under adaptive
-            // mode. Independent from `surfaceLimits` — that flag controls
-            // patch_applied / patch_unsupported. The selector is pure so this
-            // re-evaluation is cheap; we keep it separate from the resolver's
-            // call so the event payload stays machine-friendly (level + reason
-            // string, not the translated patch).
-            if (
-              cfg.reasoningPolicy?.mode === "adaptive" &&
-              cfg.reasoningPolicy?.adaptive?.surfaceDecision === true
-            ) {
-              const decision = selectAdaptiveLevel(signals, cfg.reasoningPolicy);
-              log.debug({
-                event: "reasoning.adaptive_selected",
-                session: sid,
-                tier: subagentType,
-                level: decision.level,
-                reason: decision.reason,
-              });
+              const tierCfg = cfg.presets?.[cfg.activePreset]?.[subagentType];
+              const control = tierCfg?.reasoningControl ?? null;
+              if (resolution.profile != null && !resolution.overrideUnknown) {
+                const resolved = resolveControlPatch(control, resolution.profile);
+                if (resolved != null) {
+                  const patch = patchAtIndex(control, resolved.levelIndex);
+                  if (patch) {
+                    applyReasoningPatch(agentDef, patch);
+                    if (cfg.reasoningPolicy?.surfaceLimits === true) {
+                      log.debug({
+                        event: "reasoning.patch_applied",
+                        session: sid,
+                        tier: subagentType,
+                        profile: resolution.profile,
+                        patch,
+                      });
+                    }
+                  }
+                }
+              }
+              if (
+                cfg.reasoningPolicy?.mode === "adaptive" &&
+                cfg.reasoningPolicy?.adaptive?.surfaceDecision === true
+              ) {
+                const decision = selectAdaptiveLevelV2(signals, v2Policy);
+                log.debug({
+                  event: "reasoning.adaptive_selected",
+                  session: sid,
+                  tier: subagentType,
+                  profile: decision.profile,
+                  reason: decision.reason,
+                });
+              }
             }
           }
         }

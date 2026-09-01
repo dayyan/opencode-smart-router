@@ -8,7 +8,8 @@
  * part files under `config/tiers/`:
  *
  *   - `base.json`           — top-level routing state
- *                             (activePreset, activeMode, tierCaps, defaultTier)
+ *                             (activePreset, activeMode, tierCaps, defaultTier,
+ *                             and the user-owned reasoning profile registry)
  *   - `presets.json`        — preset → tier model definitions
  *   - `prompts.json`        — per-tier system prompts (long text)
  *   - `task-patterns.json`  — taskPatterns, modes, fallback, rules
@@ -21,7 +22,7 @@
  * concatenation — it follows an explicit MERGE_PLAN that interleaves
  * the parts to match the original key order.
  *
- * PR3 phase 6 invariant: the merged output is semantically identical
+ * R-3 invariant: the merged output is semantically identical
  * to the original single-file `tiers.json` (same key order, same
  * values). Formatting (whitespace, inline-vs-multiline objects) MAY
  * differ from the original — only the parsed JSON shape is pinned.

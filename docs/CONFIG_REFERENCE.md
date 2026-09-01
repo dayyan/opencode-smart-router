@@ -54,10 +54,8 @@ Top-level `tiers.json` fields. All blocks are optional and additive; omitting a 
 |---|---|---|---|
 | `floorTier` | `string \| null` | `null` | Pin the minimum starting tier; skips cheaper rungs. Must be string or `null`. |
 | `ladder` | `string[]` | `["fast","light","medium","focused","heavy"]` | Ordered list of tier names to escalate through. Must be an array of strings. |
-| `maxAttemptsPerTier` | `number` | `1` | Retries allowed within a tier after its reasoning bumps are exhausted. Worst-case produce attempts per tier = 1 + `maxLevelBumpsPerTier` + this value (every attempt also counts toward `maxTotalAttempts`, the hard global bound). Must be integer ≥ 0. |
+| `maxAttemptsPerTier` | `number` | `1` | Retries allowed within a tier after its configured reasoning bumps are exhausted. Worst-case produce attempts per tier = 1 + `reasoningControl.maxBumps` + this value (every attempt also counts toward `maxTotalAttempts`, the hard global bound). Must be integer ≥ 0. |
 | `maxTotalAttempts` | `number` | `4` | Hard ceiling across all tiers and retries. Must be integer ≥ 1. |
-| `reasoningEscalation` | `object` | — | Reasoning-level escalation within a tier before tier fallback. See [ESCALATION.md](./ESCALATION.md). |
-| `reasoningEscalation.maxLevelBumpsPerTier` | `number` | `2` | Max reasoning-level bumps per tier (only when `reasoningEscalation.enabled` is true). Must be integer ≥ 0. |
 | `costCeiling.base` | `string` | `"firstAttemptCostUnits"` | Reference point for cost ceiling. `"firstAttemptCostUnits"` = cost of the first producing attempt. |
 | `costCeiling.multiple` | `number` | `4` | Ceiling = `base × multiple`. Must be > 0. Escalation halts when cumulative cost would exceed this. |
 
@@ -84,27 +82,27 @@ Optional top-level block in `tiers.json`. Fully additive — omitting the block 
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `mode` | `"static" \| "manual" \| "adaptive"` | `"static"` when the block is absent, `"manual"` in the bundled `base.json` | See [Policy modes](#policy-modes) below. |
-| `defaultLevel` | `"minimal" \| "normal" \| "elevated" \| "max"` | _(none)_ | Optional fallback applied under `manual` mode when the session has no override. |
-| `surfaceLimits` | `boolean` | `false` | When `true`, `/model-router-reasoning` output and the runtime log layer flag tiers that cannot satisfy the requested level. See [REASONING.md → surfaceLimits](./REASONING.md#surfacelimits). |
+| `defaultProfile` | `string` | _(none)_ | Optional registered-profile fallback applied under `manual` mode when the session has no override. |
+| `surfaceLimits` | `boolean` | `false` | When `true`, `/model-router-reasoning` output and the runtime log layer flag tiers that cannot satisfy the requested profile. See [REASONING.md → surfaceLimits](./REASONING.md#surfacelimits). |
 
 ### Policy modes
 
 | Mode | Behaviour |
 |---|---|
 | `static` | The policy resolver ALWAYS returns `null`. Even when a session override exists, the agent def is left exactly as `registerTierAgents` produced it. Use this to restore pre-Plan-010 byte-identical behaviour. |
-| `manual` | Translates `sessionOverride ?? defaultLevel` through the tier's `capability` (or `inferCapability(tier)` when no capability is declared). When both are undefined, returns `null`. |
-| `adaptive` | Stub. Returns `null`. A follow-up plan will wire an adaptive engine that picks a level from task-class / risk signals. |
+| `manual` | Translates `sessionOverride ?? defaultProfile` through the selected tier's `reasoningControl`. When the tier has no control, or both values are undefined, returns `null`. |
+| `adaptive` | Selects a registered profile from deterministic task signals, then resolves it through the selected tier's `reasoningControl`. |
 
-### Per-tier `capability`
+### Per-tier `reasoningControl`
 
-Optional field on every tier (`presets[<name>].<tier>.capability`). Authoritative when present; otherwise `inferCapability(tier)` walks `reasoning.effort`, `thinking.budgetTokens`, then `variant` (positional vs named split) and returns the inferred shape.
+Optional field on each tier (`presets[<name>].<tier>.reasoningControl`). A tier without it remains valid and retains its static baseline; it cannot receive reasoning bumps or patches.
 
-| `kind` | `field` | Shape | When to use |
-|---|---|---|---|
-| `none` | _(omitted)_ | `{ kind: "none" }` | The tier exposes no reasoning control. Router never mutates it. |
-| `binary` | `"variant"` | `{ kind: "binary"; field: "variant"; baseline?: string; elevated: string }` | Two-state toggle (e.g. default ↔ `thinking`, default ↔ `max`). `minimal`/`normal` resolve to `baseline` (or `null` if omitted); `elevated`/`max` resolve to `elevated`. |
-| `discrete` | `"variant"` _or_ `"reasoning.effort"` | `{ kind: "discrete"; field: ...; levels: string[] }` | N-state ladder (e.g. `[low, medium, high]` or `[low, medium, high, xhigh]`). The `field` discriminator picks the output channel. |
-| `budgeted` | `"thinking.budgetTokens"` | `{ kind: "budgeted"; field: "thinking.budgetTokens"; recommended: Record<level, number> }` | Token-budget ladder. `recommended` MUST cover all four levels. |
+| Field | Type | Meaning |
+|---|---|---|
+| `channel` | `"variant" \| "reasoning.effort" \| "thinking.budgetTokens"` | Provider-native output channel. |
+| `levels` | `string[] \| number[]` | Strictly ordered native values for the tier's channel. |
+| `profileMap` | `Record<string, string \| number>` | Exact mapping from every registered `reasoningPolicy.profiles` ID to one value in `levels`. |
+| `maxBumps` | `number` | Maximum same-tier bumps; `0` disables bumping. Must not exceed `levels.length - 1`. |
 
 ### Minimal example
 
@@ -112,6 +110,8 @@ Optional field on every tier (`presets[<name>].<tier>.capability`). Authoritativ
 {
   "reasoningPolicy": {
     "mode": "manual",
+    "profiles": ["p1", "p2", "p3"],
+    "defaultProfile": "p2",
     "surfaceLimits": false
   },
   "presets": {
@@ -119,24 +119,39 @@ Optional field on every tier (`presets[<name>].<tier>.capability`). Authoritativ
       "fast": {
         "model": "opencode-go/mimo-v2.5",
         "variant": "medium",
-        "capability": { "kind": "discrete", "field": "variant", "levels": ["low", "medium", "high"] }
+        "reasoningControl": {
+          "channel": "variant",
+          "levels": ["low", "medium", "high"],
+          "profileMap": { "p1": "low", "p2": "medium", "p3": "high" },
+          "maxBumps": 2
+        }
       },
       "medium": {
         "model": "minimax-coding-plan/MiniMax-M3",
         "variant": "thinking",
-        "capability": { "kind": "binary", "field": "variant", "elevated": "thinking" }
+        "reasoningControl": {
+          "channel": "variant",
+          "levels": ["default", "thinking"],
+          "profileMap": { "p1": "default", "p2": "thinking", "p3": "thinking" },
+          "maxBumps": 1
+        }
       },
       "heavy": {
         "model": "openai/gpt-5.4",
         "reasoning": { "effort": "high", "summary": "detailed" },
-        "capability": { "kind": "discrete", "field": "reasoning.effort", "levels": ["low", "medium", "high"] }
+        "reasoningControl": {
+          "channel": "reasoning.effort",
+          "levels": ["low", "medium", "high"],
+          "profileMap": { "p1": "low", "p2": "medium", "p3": "high" },
+          "maxBumps": 2
+        }
       }
     }
   }
 }
 ```
 
-All fields are optional. A config with no `reasoningPolicy` block and no per-tier `capability` declarations is byte-identical to pre-Plan-010 behaviour. See [REASONING.md](./REASONING.md) for the full capability model, normalized level vocabulary, translation rules, and the documented 3-level-ladder collapse quirk.
+All fields are optional. A config with no `reasoningPolicy` block and no per-tier `reasoningControl` declarations is byte-identical to its static baseline behaviour. Profile IDs are user-owned strings; the example IDs above are illustrative only. See [REASONING.md](./REASONING.md) for the native-level control model and translation rules.
 
 ---
 
@@ -166,7 +181,7 @@ Evaluated by `resolveEnforcementMode` on every dispatch.
 | `escalate.ladder` must be an array of strings. |
 | `escalate.maxAttemptsPerTier` must be an integer ≥ 0. |
 | `escalate.maxTotalAttempts` must be an integer ≥ 1. |
-| `escalate.reasoningEscalation.maxLevelBumpsPerTier` must be an integer ≥ 0 when present. |
+| Every `reasoningControl.maxBumps` must be an integer from `0` to `levels.length - 1`. |
 | `escalate.floorTier` must be string or `null`. |
 | `perTier` values must each be `off \| advisory \| enforced`. |
 | `guard.budget` must be a number ≥ 1. |
@@ -221,3 +236,11 @@ Three independent mechanisms; env gate always wins:
 ```
 
 All fields are optional. An empty `{}` or omitted block is a no-op.
+# Plan 041 migration
+
+Plan 041 removes the legacy `TierConfig.capability` field and
+`enforcement.escalate.reasoningEscalation`. Both keys now fail validation with a
+migration error. Define `reasoningControl` on each controllable tier instead:
+its ordered native `levels`, exact registry-wide `profileMap`, channel, and
+required `maxBumps` (`0` disables bumping). Tiers without a control remain
+valid and use their static baseline.

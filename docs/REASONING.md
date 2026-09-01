@@ -2,101 +2,63 @@
 
 The router exposes a provider-agnostic way to control how much each subagent reasons before answering. It works through three layers:
 
-1. A **capability model** that describes what each tier can do (none / binary / discrete / budgeted).
-2. A **normalized level vocabulary** (`minimal` / `normal` / `elevated` / `max`) that is the same for every tier.
+1. A **per-tier reasoning control** that describes the provider-native values a tier can use.
+2. A **profile registry** that gives users stable IDs for selecting those native values.
 3. A **session-scoped override** set with the `/model-router-reasoning` command and applied at `task` dispatch time via `tool.execute.before`.
 
-Pre-Plan-010 tier configs continue to work: capability is **inferred** from existing fields (`variant`, `reasoning.effort`, `thinking.budgetTokens`) when no explicit declaration is present. The bundled presets now declare capability explicitly — see [Capability declarations](#capability-declarations) — so inference is a safety net, not the primary path.
+This is the Plan 041 v2 contract. Legacy `capability` and global `reasoningEscalation` keys are rejected during validation. Tiers without `reasoningControl` remain valid and keep their statically declared baseline.
 
-**Cross-references:** [CONFIG_REFERENCE.md → `reasoningPolicy`](./CONFIG_REFERENCE.md#reasoningpolicy) · [Capability declarations](#capability-declarations) · [Policy modes](#policy-modes-reasoningpolicy) · [Adaptive mode](#adaptive-mode) · [`/model-router-reasoning` command](#model-router-reasoning-command) · [Backward compatibility](#backward-compatibility) · [`surfaceLimits`](#surfacelimits)
+**Cross-references:** [CONFIG_REFERENCE.md → `reasoningPolicy`](./CONFIG_REFERENCE.md#reasoningpolicy) · [Bundled controls](#bundled-controls) · [Policy modes](#policy-modes-reasoningpolicy) · [Adaptive mode](#adaptive-mode) · [`/model-router-reasoning` command](#model-router-reasoning-command) · [Migration](#backward-compatibility) · [`surfaceLimits`](#surfacelimits)
 
 ---
 
-## Normalized levels
+## Profile IDs and native levels
 
-The router speaks four levels. They are provider-agnostic; each tier's `capability` decides where the level lands.
+Profile IDs are user-owned strings registered in `reasoningPolicy.profiles`. Each controlled tier maps every registered ID to one value from its ordered, provider-native `reasoningControl.levels` ladder.
 
-| Level | Meaning | Rank |
+| Field | Meaning |
 |---|---|---|
-| `minimal` | Skip extra reasoning work. | 0 |
-| `normal` | Tier's baseline reasoning effort. | 1 |
-| `elevated` | Reason harder than baseline. | 2 |
-| `max` | Top available reasoning effort. | 3 |
+| `channel` | `variant`, `reasoning.effort`, or `thinking.budgetTokens`. |
+| `levels` | Strictly ordered strings or non-negative numbers accepted by that channel. |
+| `profileMap` | Exact registry-wide mapping from profile ID to a ladder value. |
+| `maxBumps` | Maximum same-tier ladder advances after a verification failure; `0` disables bumping. |
 
-These are the only valid arguments to `/model-router-reasoning`. Anything else returns `Unknown level: "<arg>". Use one of: minimal, normal, elevated, max (or "off" to clear).`
+`/model-router-reasoning <profile-id>` accepts only a registered profile ID. `off` clears the session override. The IDs and native values are intentionally not normalized across providers.
 
 ---
 
-## Capability model
+## Native translation
 
-Every tier carries a `capability` field. The shape determines how `translateLevel` emits the provider-specific `variant` / `options` patch.
+The translator resolves a profile ID through the tier's `reasoningControl.profileMap`, then emits a patch for the declared channel:
 
-| `kind` | `field` | Behaviour | Example tier |
-|---|---|---|---|
-| `none` | _(none)_ | No reasoning control. The router never mutates the tier — `/model-router-reasoning` is a no-op for this tier. | `anthropic.fast` (Haiku), `google.*` (Gemini) |
-| `binary` | `variant` | Two-state toggle: a baseline + an elevated variant. `minimal`/`normal` map to the baseline (or `null` when no baseline is declared); `elevated`/`max` map to the elevated variant. | `multi-provider.medium` (MiniMax `thinking`), `anthropic.medium` (Sonnet `max`), `anthropic.heavy` (Opus `max`) |
-| `discrete` | `variant` | N-state ladder routed through `agentDef.variant`. Picked by nearest-rank mapping: `Math.round(rank/3 * (len-1))`. | `multi-provider.fast` (mimo `[low, medium, high]`), `openai.medium` (`[low, medium, high]`), `openai.heavy` (`[low, medium, high, xhigh]`) |
-| `discrete` | `reasoning.effort` | Same ladder, routed through `agentDef.options.reasoning_effort`. | `multi-provider.heavy` (gpt-5.4 `[low, medium, high]`) |
-| `budgeted` | `thinking.budgetTokens` | Token budget ladder routed through `agentDef.options.budget_tokens`. Not used in the bundled presets today; reserved for future Anthropic-style budget tiers. | _(none in `multi-provider`)_ |
-
-The `field` discriminator is **mandatory** on every variant that carries an output channel. `translateLevel` uses it as the single source of truth for routing — it never has to look back at the tier to decide where the patch lands.
-
-### Translation rules
-
-Given a `(capability, level)` pair, the translator emits a `ResolvedReasoning`:
-
-| Capability × level | Emitted patch |
+| Channel | Emitted patch |
 |---|---|
-| `none` × _anything_ | `null` (never mutated) |
-| `binary` × `minimal`/`normal` | `{ variant: cap.baseline }` _or_ `null` when no baseline is declared |
-| `binary` × `elevated`/`max` | `{ variant: cap.elevated }` |
-| `discrete` × _level_ | `{ variant: <picked> }` when `field === "variant"`, else `{ options: { reasoning_effort: <picked> } }` |
-| `budgeted` × _level_ | `{ options: { budget_tokens: cap.recommended[level] ?? cap.recommended.normal } }` |
+| `variant` | `{ variant: <native value> }` |
+| `reasoning.effort` | `{ options: { reasoning_effort: <native value> } }` |
+| `thinking.budgetTokens` | `{ options: { budget_tokens: <native value> } }` |
 
-`null` is the canonical "no-op" sentinel. The router and the `/model-router-reasoning` command both honor it: a `null` patch is silently skipped (unless [`surfaceLimits`](#surfacelimits) is enabled, in which case the runtime emits a debug event — see [`surfaceLimits`](#surfacelimits)).
+`null` is the canonical "no-op" sentinel. Tiers without `reasoningControl` return `null` and retain their static baseline.
 
 ---
 
-## Capability declarations
+## Bundled controls
 
-The bundled presets declare capability explicitly on every tier. This table is the authoritative reference for what `/model-router-reasoning` can do on each tier.
+The bundled presets are authoritative. Controlled tiers declare `reasoningControl`; tiers without it are static-only.
 
-| Preset | Tier | Model | Capability |
-|---|---|---|---|
-| `multi-provider` | `fast` | `opencode-go/mimo-v2.5` | `discrete` · `variant` · `[low, medium, high]` |
-| `multi-provider` | `medium` | `minimax-coding-plan/MiniMax-M3` | `binary` · `variant` · elevated `thinking` |
-| `multi-provider` | `heavy` | `openai/gpt-5.4` | `discrete` · `reasoning.effort` · `[low, medium, high]` |
-| `openai` | `fast` | `openai/gpt-5.4-mini-fast` | `none` |
-| `openai` | `medium` | `openai/gpt-5.5-fast` | `discrete` · `variant` · `[low, medium, high]` |
-| `openai` | `heavy` | `openai/gpt-5.5-fast` | `discrete` · `variant` · `[low, medium, high, xhigh]` |
-| `anthropic` | `fast` | `anthropic/claude-haiku-4-5` | `none` |
-| `anthropic` | `medium` | `anthropic/claude-sonnet-4-6` | `binary` · `variant` · elevated `max` |
-| `anthropic` | `heavy` | `anthropic/claude-opus-4-8` | `binary` · `variant` · elevated `max` |
-| `github-copilot` | `fast` | `github-copilot/claude-haiku-4-5` | `none` |
-| `github-copilot` | `medium` | `github-copilot/claude-sonnet-4-6` | `none` |
-| `github-copilot` | `heavy` | `github-copilot/claude-opus-4-6` | `binary` · `variant` · elevated `thinking` |
-| `google` | `fast` / `medium` / `heavy` | gemini-* | `none` (all three) |
-| `hybrid` | `fast` | `anthropic/claude-haiku-4-5` | `none` |
-| `hybrid` | `medium` | `openai/gpt-5.5-fast` | `discrete` · `variant` · `[low, medium, high]` |
-| `hybrid` | `heavy` | `anthropic/claude-opus-4-8` | `binary` · `variant` · elevated `max` |
+### Control schema
 
-### Capability schema
-
-Per tier (`TierConfig.capability`):
+Per tier (`TierConfig.reasoningControl`):
 
 ```ts
-type ReasoningCapability =
-  | { kind: "none" }
-  | { kind: "binary"; field: "variant"; baseline?: string; elevated: string }
-  | { kind: "discrete"; field: "variant" | "reasoning.effort"; levels: string[] }
-  | {
-      kind: "budgeted";
-      field: "thinking.budgetTokens";
-      recommended: Record<"minimal" | "normal" | "elevated" | "max", number>;
-    };
+type ReasoningControl = {
+  channel: "variant" | "reasoning.effort" | "thinking.budgetTokens";
+  levels: string[] | number[];
+  profileMap: Record<string, string | number>;
+  maxBumps: number;
+};
 ```
 
-`field` is mandatory on every variant carrying output. `baseline` is optional on `binary` (omit it when there is no low-state variant — `minimal`/`normal` then resolve to `null`, i.e. the tier is left at whatever variant was statically declared).
+`profileMap` must contain exactly the registered profile IDs, and each mapped value must occur in `levels`.
 
 ---
 
@@ -106,9 +68,9 @@ type ReasoningCapability =
 
 | Mode | Behaviour | Use it for |
 |---|---|---|
-| `static` _(default when `reasoningPolicy` is absent)_ | Always returns `null` from the policy resolver. `static` is a hard no-op: even if a session override exists, the agent def is left exactly as `registerTierAgents` produced it. | Pre-Plan-010 configs. Anyone who wants byte-identical behaviour to today. |
-| `manual` | Translates `sessionOverride ?? policy.defaultLevel` through the tier's capability. When the override is `undefined` and no `defaultLevel` is configured, returns `null` (silent no-op). | `/model-router-reasoning` driven overrides. The **bundled default** as of Plan 010 PR 3, and the mode this release ships with runtime mode switching (`static` and `adaptive` also persist via `mode`). |
-| `adaptive` | Picks a level from real task signals via `selectAdaptiveLevel()`. Decision order: `trivialLevel` → `tierDefaults[tierName]` → first-matching `keywordRules` rule → `defaultLevel` → `null` (no patch). An explicit session override always wins over the selector. See [Adaptive mode](#adaptive-mode) for the full contract and what the selector does **not** consider (no history, no token usage, no cross-session learning). | Per-session overrides are still honoured (`/model-router-reasoning elevated`) and beat the selector. Opt in with `/model-router-reasoning mode adaptive`. |
+| `static` _(default when `reasoningPolicy` is absent)_ | Always returns `null` from the policy resolver. The agent definition remains at its declared baseline. | Static-only operation or configurations without reasoning controls. |
+| `manual` | Resolves the session profile override, then the policy default, through the selected tier's `reasoningControl.profileMap`. A tier without a control returns `null`. | `/model-router-reasoning` driven overrides. |
+| `adaptive` | Selects a registered profile from task signals, then resolves it through the selected tier's control. An explicit session override always wins. | Deterministic task-signal selection; see [Adaptive mode](#adaptive-mode). |
 
 `surfaceLimits` defaults to `false`. See [below](#surfacelimits).
 
@@ -123,7 +85,7 @@ type ReasoningCapability =
 }
 ```
 
-Because `surfaceLimits` is `false`, the default behaviour is silent: a `/model-router-reasoning minimal` call on a `none`-capability tier produces a confirmation in the chat but does not mutate the agent def or emit any plugin log. Only an explicit `surfaceLimits: true` changes this.
+Because `surfaceLimits` is `false`, the default behaviour is silent: a profile request on a tier without `reasoningControl` produces a confirmation in the chat but does not mutate the agent definition. Only an explicit `surfaceLimits: true` changes this.
 
 To restore the pre-Plan-010 byte-identical behaviour, set `reasoningPolicy.mode` to `"static"`.
 
@@ -159,21 +121,21 @@ The runtime extracts these from the Task-tool args at `tool.execute.before` (see
 The selector runs the steps below in order and stops at the first match. `null` at any step means "no patch" — the agent def is left at baseline.
 
 1. `reasoningPolicy.adaptive` is absent → `null` (no adaptive config). This is the same effective behaviour as `static` mode for an unprepared config.
-2. `signals.isTrivial === true` → `adaptive.trivialLevel` (or `null` if unset → no patch for trivial sessions).
+2. `signals.isTrivial === true` → `adaptive.trivialProfile` (or `null` if unset → no patch for trivial sessions).
 3. `adaptive.tierDefaults[signals.tierName]` is set → that level.
-4. `adaptive.keywordRules` scanned in array order — first rule whose `excludeKeywords` do NOT match AND whose `keywords` match in `prompt` OR `description` wins. Matching respects the rule's `match` mode (default `"stem"`); see [Keyword match modes](#keyword-match-modes).
-5. `adaptive.defaultLevel` (or `null` if unset → no patch).
+4. `adaptive.rules` scanned in array order — first rule whose `excludeKeywords` do NOT match AND whose `keywords` match in `prompt` OR `description` wins. Matching respects the rule's `match` mode (default `"stem"`); see [Keyword match modes](#keyword-match-modes).
+5. `adaptive.defaultProfile` (or `null` if unset → no patch).
 6. Fall-through to `null` (no patch).
 
-Every resolved level is then passed through `translateLevel(cap, level)` in `policy.ts`, so capability gating still applies — adaptive only picks the **normalized level**, not the provider-specific patch. A `none`-capability tier, a `binary` capability without a baseline for a low-rank level, etc., all still resolve to `null` through the same translator the other modes use.
+Every resolved profile is then passed through the tier's `reasoningControl`, so adaptive selection chooses a profile while translation emits the provider-native patch. A tier without a control resolves to `null`.
 
 #### Precedence under adaptive mode
 
 When `mode === "adaptive"` the resolver consults inputs in this order (highest first):
 
-1. **Explicit session override** (`/model-router-reasoning minimal|normal|elevated|max` → `ctx.reasoningStore.get(sessionID)`) — **always wins**, regardless of selector output. Operators need certainty when they set an override manually.
+1. **Explicit session override** (`/model-router-reasoning <profile-id>` → `ctx.reasoningStore.get(sessionID)`) — **always wins**, regardless of selector output. Operators need certainty when they set an override manually.
 2. `selectAdaptiveLevel(signals, policy)` result.
-3. `policy.defaultLevel` as a safety net.
+3. `policy.defaultProfile` as a safety net.
 4. `null` (no patch).
 
 This precedence is mirrored in the file header of `src/reasoning/policy.ts` and exercised by `test/unit/reasoning-policy.test.ts` (the `adaptive-mode delegates to selectAdaptiveLevel` describe block).
@@ -183,22 +145,22 @@ This precedence is mirrored in the file header of `src/reasoning/policy.ts` and 
 ```jsonc
 "reasoningPolicy": {
   "mode": "adaptive",
-  "defaultLevel": "normal",
+  "defaultProfile": "p2",
   "adaptive": {
-    "trivialLevel": null,                                    // null → skip trivial sessions entirely
-    "defaultLevel": "normal",                                 // catch-all for non-trivial tasks with no keyword match
-    "keywordRules": [
-      { "keywords": ["refactor", "architecture", "security", "migration"], "level": "elevated" },
-      { "keywords": ["debug", "diagnose", "investigate", "root cause"], "level": "elevated" },
-      { "keywords": ["test", "fix", "patch"], "level": "normal" }
+    "trivialProfile": null,                                    // null → skip trivial sessions entirely
+    "defaultProfile": "p2",                                 // catch-all for non-trivial tasks with no keyword match
+      "rules": [
+      { "keywords": ["refactor", "architecture", "security", "migration"], "profile": "p3" },
+      { "keywords": ["debug", "diagnose", "investigate", "root cause"], "profile": "p3" },
+      { "keywords": ["test", "fix", "patch"], "profile": "p2" }
     ],
-    "tierDefaults": { "fast": "minimal" },                    // optional: pin a level per tier, wins over defaultLevel
+    "tierProfileDefaults": { "fast": "p1" },                    // optional: pin a profile per tier
     "surfaceDecision": false                                  // debug-log every adaptive decision when true
   }
 }
 ```
 
-All fields are optional — a partial block is a valid config. `null` on `trivialLevel` / `defaultLevel` is a valid value (means "no patch"). Order matters in `keywordRules`: the **first** rule whose keywords match wins, so high-precision rules MUST come before catch-alls. The shipped `config/tiers/base.json` carries the conservative defaults above with `mode: "manual"` so existing installs behave unchanged until operators opt in.
+All fields are optional — a partial block is a valid config. `null` on `trivialProfile` / `defaultProfile` is a valid value (means "no patch"). Order matters in `rules`: the **first** rule whose keywords match wins, so high-precision rules MUST come before catch-alls. The shipped `config/tiers/base.json` carries the conservative defaults above with `mode: "manual"` so existing installs behave unchanged until operators opt in.
 
 #### Keyword match modes
 
@@ -209,7 +171,7 @@ type MatchMode = "word" | "stem" | "substring" | "regex";
 
 interface AdaptiveKeywordRule {
   keywords: string[];
-  level: ReasoningLevel;
+  profile: string;
   match?: MatchMode;          // default: "stem"
   excludeKeywords?: string[]; // same mode as `match`
 }
@@ -227,28 +189,28 @@ interface AdaptiveKeywordRule {
 The shipped `config/tiers/base.json` (as of Plan 018) demonstrates both new fields:
 
 ```jsonc
-"keywordRules": [
+"rules": [
   {
     "keywords": ["format", "lint", "rename", "sort import", "bump version", "typo"],
-    "level": "minimal",
+    "profile": "p1",
     "excludeKeywords": ["refactor", "architect", "redesign"]
   },
   {
     "keywords": ["root cause", "rca", "security audit", "architecture redesign", "architect", "data migration"],
-    "level": "max"
+    "profile": "p4"
   },
   {
     "keywords": ["refactor", "security", "debug", "diagnose", "investigate", "performance", "profiling", "concurrency", "race condition", "optimize", "optimization", "memory leak", "bottleneck"],
-    "level": "elevated"
+    "profile": "p3"
   }
 ]
 ```
 
-The first rule is a precision rule: it picks `minimal` for cosmetic tasks (format, lint, rename, sort import, bump version, typo) but explicitly opts out when the same prompt also mentions `refactor`, `architect`, or `redesign` — those escalate through the elevated or max rules instead. `mode: "manual"` and `defaultLevel: "normal"` are unchanged, so existing installs continue to behave the same until operators opt in with `/model-router-reasoning mode adaptive`.
+The first rule is a precision rule: it picks the configured low-cost profile for cosmetic tasks (format, lint, rename, sort import, bump version, typo) but explicitly opts out when the same prompt also mentions `refactor`, `architect`, or `redesign` — those rules can select a stronger registered profile instead. `mode: "manual"` remains the bundled default until operators opt in with `/model-router-reasoning mode adaptive`.
 
 > **Stem mode is prefix-based, not linguistic stemming.** It covers suffix inflections of the *exact base* (`debug` → `debugging`, `refactor` → `refactoring`). Words with divergent bases (`optimize` vs `optimization`) must each be listed in the rule's `keywords`. Plan 018 ships both forms explicitly in the elevated rule above.
 
-> **Known residual.** `word` and `stem` still match identifiers like `test_fixture` and `prefix_setup` because `_` is a `\w` character and `\b` is ASCII-only. Stripping code-fences before matching is a deeper change deferred to a future plan. The current shipped vocabulary does not include `test`, `fix`, or `patch` as standalone keywords (they are handled by `defaultLevel: "normal"`), so the residual is unlikely to surface in practice — but operators adding custom rules with those bare keywords should be aware.
+> **Known residual.** `word` and `stem` still match identifiers like `test_fixture` and `prefix_setup` because `_` is a `\w` character and `\b` is ASCII-only. Stripping code-fences before matching is a deeper change deferred to a future plan. Operators adding custom rules with those bare keywords should be aware.
 
 #### What adaptive does NOT consider (yet)
 
@@ -260,14 +222,14 @@ The shipped selector is deliberately minimal. It does not consult any of:
 - **Tool-call counts in the same session** — the trivial classifier used at dispatch time is the only session-state signal read. The router does not remember what the previous dispatch decided.
 - **The level chosen by previous dispatches in the same session** — adaptive is dispatch-by-dispatch, not cumulative. There is no escalation ladder that builds on prior calls.
 
-A future plan can extend `AdaptiveSignals` and add new decision branches without touching the runtime call site (the selector is pure). Today, if you need any of the above signals, switch to `manual` mode and use `/model-router-reasoning <level>` directly per dispatch.
+A future plan can extend `AdaptiveSignals` and add new decision branches without touching the runtime call site (the selector is pure). Today, if you need any of the above signals, switch to `manual` mode and use `/model-router-reasoning <profile-id>` directly per dispatch.
 
 #### Forcing manual control (workarounds)
 
 There are three ways to override the selector — for a single dispatch, for one tier, or for the whole workspace:
 
-- **Per-session, single dispatch.** Set an override before dispatching: `/model-router-reasoning elevated`. The override wins for the next `task` call in this session; clear with `/model-router-reasoning off`. The override applies to all tiers in that session, not just one.
-- **Per-tier pinning.** Add the tier name to `reasoningPolicy.adaptive.tierDefaults` — that tier's level is decided by the table, not by keywords or the trivial classifier. Useful for pinning `@fast` to `minimal` (no selector overhead on cheap lookups) or `@heavy` to `elevated` (always reason harder on heavy dispatch).
+- **Per-session, single dispatch.** Set an override before dispatching: `/model-router-reasoning p3`. The override wins for the next `task` call in this session; clear with `/model-router-reasoning off`. The override applies to all tiers in that session, not just one.
+- **Per-tier pinning.** Add the tier name to `reasoningPolicy.adaptive.tierDefaults` — that tier's profile is decided by the table, not by keywords or the trivial classifier. Useful for pinning `@fast` to `p1` (no selector overhead on cheap lookups) or `@heavy` to `p3` (always reason harder on heavy dispatch).
 - **Disable adaptive globally.** `/model-router-reasoning mode static` — restores pre-Plan-015 byte-identical behaviour (no patches ever). Or `/model-router-reasoning mode manual` — keeps the per-session override surface but disables automatic selection. Both persist through `saveReasoningMode()`.
 
 #### Opt-in observability
@@ -280,31 +242,28 @@ Set `reasoningPolicy.adaptive.surfaceDecision` to `true` to emit `log.debug({ ev
 
 The `/model-router-reasoning` command is the user-facing entry point. It has two distinct surfaces, separated by the `mode` subcommand:
 
-- **Level overrides** (`minimal` / `normal` / `elevated` / `max` / `off`) set a **session-scoped** override on `ctx.reasoningStore`. The override applies to the next `task` dispatch in this session only and is cleared by `off`.
+- **Profile overrides** (`<registered-profile-id>` / `off`) set a **session-scoped** override on `ctx.reasoningStore`. The override applies to the next `task` dispatch in this session only and is cleared by `off`.
 - **Mode switching** (`mode static` / `mode manual` / `mode adaptive`) **persists** a new policy-mode value through the router state overlay (`saveReasoningMode`). The change is global to the workspace and survives restarts — it is NOT session-scoped. `mode adaptive` opts in to the selector described under [Adaptive mode](#adaptive-mode); `mode static` and `mode manual` preserve their pre-Plan-015 semantics.
 
 ### Usage
 
 | Form | Effect |
 |---|---|
-| `/model-router-reasoning` _(no args)_ | Print policy mode + per-tier capability descriptions. |
-| `/model-router-reasoning minimal` | Set session override to `minimal`. |
-| `/model-router-reasoning normal` | Set session override to `normal`. |
-| `/model-router-reasoning elevated` | Set session override to `elevated`. |
-| `/model-router-reasoning max` | Set session override to `max`. |
+| `/model-router-reasoning` _(no args)_ | Print policy mode + per-tier reasoning-control descriptions. |
+| `/model-router-reasoning p1` | Set session override to registered profile `p1`. |
 | `/model-router-reasoning off` | Clear the session override. |
 | `/model-router-reasoning mode` | Print the current persisted policy mode + usage. |
 | `/model-router-reasoning mode static` | **Persist** `mode: "static"` to the state overlay; takes effect on the next config refresh. |
 | `/model-router-reasoning mode manual` | **Persist** `mode: "manual"` to the state overlay; takes effect on the next config refresh. |
 | `/model-router-reasoning mode adaptive` | **Persist** `mode: "adaptive"` to the state overlay; the selector described under [Adaptive mode](#adaptive-mode) takes effect on the next config refresh. Per-session overrides still win over the selector. |
-| `/model-router-reasoning foo` | Reject: `Unknown level: "foo". Use one of: minimal, normal, elevated, max (or "off" to clear). Run '/model-router-reasoning mode' to switch the policy.` |
+| `/model-router-reasoning foo` | Reject an unregistered profile. Run `/model-router-reasoning` to inspect the registered profiles. |
 
 The level override applies to the **next `task` dispatch in this session only**. The runtime hooks restore the baseline tier config in `tool.execute.after`, so a session override does not leak to subsequent dispatches or to other sessions. The persisted mode, by contrast, applies to every dispatch that loads the config from that point on — until another `mode` call (or a manual edit to the state file) changes it again.
 
-### Example output (`/model-router-reasoning elevated`)
+### Example output (`/model-router-reasoning p2`)
 
 ```
-Reasoning override set to **elevated** for this session.
+Reasoning override set to **p2** for this session.
 
 Per-tier behaviour:
 - @fast: variant = 'high'.
@@ -314,20 +273,12 @@ Per-tier behaviour:
 Takes effect on the next `task` dispatch in this session.
 ```
 
-With `surfaceLimits: true`, the output also flags collapses:
-
-```
-- @fast: variant = 'medium'.
-  Note: 'elevated' collapses to 'medium' (same as 'normal') on this tier's ladder
-  — surface the limit by enabling reasoningPolicy.surfaceLimits.
-```
-
 ### Example output (`/model-router-reasoning mode manual`)
 
 ```
 Reasoning policy mode set to **manual** and persisted.
 
-Per-session overrides are enabled — `/model-router-reasoning minimal|normal|elevated|max` will take effect on the next task dispatch.
+Per-session overrides are enabled — `/model-router-reasoning <profile-id>` will take effect on the next task dispatch.
 
 Takes effect on the next config refresh.
 ```
@@ -335,13 +286,13 @@ Takes effect on the next config refresh.
 ### How the override is applied
 
 ```
-/model-router-reasoning elevated
+/model-router-reasoning p3
   -> command.execute.before (sessionID threaded through runtime)
-  -> reasoningStore.set(sessionID, "elevated")
+  -> reasoningStore.set(sessionID, "p3")
 
 Task(subagent_type="medium")
   -> tool.execute.before
-  -> resolveReasoningOverride(tier, cfg.reasoningPolicy, store.get(sessionID))
+  -> resolveReasoningProfile(v2Policy, profile, signals)
   -> applyReasoningPatch(liveAgent, resolved)
   -> task spawns child with patched agent config
   -> tool.execute.after restores baseline tier config
@@ -366,22 +317,12 @@ Plan 010 is fully backward-compatible with every config shipped before it.
 | Pre-Plan-010 config | Post-Plan-010 behaviour |
 |---|---|
 | No `reasoningPolicy` block | Resolves to `static` mode. `resolveReasoningOverride` returns `null` regardless of any session override. Agent output is **byte-identical** to pre-Plan-010. |
-| No `capability` on a tier | `inferCapability(tier)` walks `reasoning.effort`, `thinking.budgetTokens`, then `variant` (positional vs named split) and returns the inferred shape. Existing tier fields are the source of truth. |
-| Explicit `capability` on a tier | Authoritative. Inference is skipped. The translator uses the declared `field` and `levels`/`baseline`/`elevated`/`recommended`. |
+| No `reasoningControl` on a tier | Valid static-only tier. The router does not infer a control from `variant`, `reasoning.effort`, or `thinking.budgetTokens`. |
+| Legacy `capability` or `reasoningEscalation` key | Rejected during validation with migration guidance; no compatibility inference is performed. |
 
 The default in the **bundled** `base.json` is now `manual` mode (so `/model-router-reasoning` works out of the box). User-supplied `global` / `local` tiers.json layers can override it back to `static` to keep pre-Plan-010 behaviour verbatim.
 
-### Inference rules
-
-`inferCapability` walks the legacy fields in this order (first match wins):
-
-1. `tier.reasoning.effort` is set → `discrete` · `reasoning.effort` · `[low, medium, high]`.
-2. `tier.thinking.budgetTokens` is set → `budgeted` · `thinking.budgetTokens` · default ladder `{ minimal: 1024, normal: 4096, elevated: 8192, max: 16000 }`.
-3. `tier.variant` is positional (`low` / `medium` / `high` / `xhigh`) → `discrete` · `variant` · ladder sized to include the seen position (`xhigh` ⇒ 4 rungs, otherwise 3).
-4. `tier.variant` is named (`thinking` / `max`) → `binary` · `variant` · elevated = the seen variant.
-5. otherwise → `none`.
-
-Inference is intentionally narrow: it cannot silently invent behaviour. Tiers that need a richer capability (custom ladders, explicit baselines, custom budget maps) **must** declare `capability` directly.
+There is no inference from static provider fields. If a tier needs runtime reasoning control, declare its complete `reasoningControl` explicitly.
 
 ---
 
@@ -391,8 +332,8 @@ Inference is intentionally narrow: it cannot silently invent behaviour. Tiers th
 
 | Value | Effect |
 |---|---|
-| `false` _(bundled default)_ | Silent no-op when a tier cannot satisfy the requested level. The `/model-router-reasoning` command still prints the success line, but per-tier skip/collapse notes are omitted and the runtime does not emit any reasoning-related debug events. |
-| `true` | When a tier's capability cannot satisfy the requested level, the `/model-router-reasoning` output flags it (`- @<tier>: unsupported (no reasoning control).`) and collapse-on-coarse-ladder notes are expanded. The runtime emits `log.debug` events keyed by `event` so operators can correlate what each dispatch did: `reasoning.patch_applied` (a patch landed), `reasoning.patch_unsupported` (an override resolved to `null`), and `reasoning.patch_skipped_concurrent` (a same-tier overlap was skipped — see [Same-tier in-flight guard](#same-tier-in-flight-guard)). |
+| `false` _(bundled default)_ | Silent no-op when a tier has no control or a requested profile cannot be applied. |
+| `true` | When a tier has no usable reasoning control, the `/model-router-reasoning` output flags it. The runtime emits `log.debug` events keyed by `event`: `reasoning.patch_applied`, `reasoning.patch_unsupported`, and `reasoning.patch_skipped_concurrent`. |
 
 Surfacing is observability, not a user-facing message: the debug events never appear in the chat, they only show up in the plugin log. There is no advisory "pending note" path — that plumbing was removed in Plan 014 because nothing consumed it.
 
@@ -400,45 +341,42 @@ Set `surfaceLimits: true` while you are triaging a new tier or a new override; l
 
 ---
 
-## Known quirks
+## Native ladder behavior
 
-### 3-level discrete ladder collapse
-
-`translateLevel` maps normalized ranks onto discrete ladders via `Math.round((rank / 3) * (len - 1))`. On a **3-level** ladder (`[low, medium, high]`), this collapses `normal` and `elevated` onto the same rung:
-
-| Requested level | Rank | Index for 3-level ladder | Picked |
-|---|---|---|---|
-| `minimal` | 0 | `round(0/3 * 2)` = 0 | `low` |
-| `normal` | 1 | `round(1/3 * 2)` = `round(0.667)` = 1 | `medium` |
-| `elevated` | 2 | `round(2/3 * 2)` = `round(1.333)` = 1 | `medium` ← collapse |
-| `max` | 3 | `round(3/3 * 2)` = 2 | `high` |
-
-`/model-router-reasoning elevated` and `/model-router-reasoning normal` produce the **same patch** on `multi-provider.fast` (mimo's 3-level ladder). 4-level ladders (`[low, medium, high, xhigh]`) do not collapse.
-
-The collapse is intentional: it matches the discrete-ladder spec. The `/model-router-reasoning` command surfaces it (under `surfaceLimits`) so users are not surprised by the same `variant` for two different requested levels. 2-level ladders behave correctly because `Math.min(rawIdx, len-1)` clamps; 4+ level ladders have one rung per normalized level.
+Each tier's `levels` array is ordered in provider-native values. Profile IDs map directly to those values; there is no cross-provider rank normalization or ladder-collapse rule.
 
 ### Other limitations
 
-- `budgeted` capability is supported by the translator but **not declared** on any bundled tier today. Declaring it on a tier requires both `field: "thinking.budgetTokens"` and a `recommended` map covering all four normalized levels.
+- A controlled tier's `profileMap` must cover the complete registry, even when several profile IDs intentionally map to the same native value.
 - The bundled default mode is `manual`, which means `/model-router-reasoning` works out of the box. Set `reasoningPolicy.mode` to `static` to restore the pre-Plan-010 byte-identical behaviour.
-- The `adaptive` mode is **available as an opt-in** as of Plan 015. The bundled `config/tiers/base.json` ships a conservative adaptive block (`defaultLevel: "normal"`, three keyword groups, no per-tier pin) but keeps `mode: "manual"` as the default so existing installs behave unchanged until operators run `/model-router-reasoning mode adaptive`. The shipped selector is intentionally minimal — no history, no token usage, no cross-session learning; see [Adaptive mode](#adaptive-mode) for the full contract and the workaround list.
+- The `adaptive` mode is **available as an opt-in**. The bundled `config/tiers/base.json` ships a conservative profile-based adaptive block and keeps `mode: "manual"` as the default. The selector is intentionally minimal — no history, no token usage, no cross-session learning.
 
 ---
 
 ## Verification
 
+## Plan 041 migration note
+
+The v2 reasoning contract is breaking. Replace each tier's removed `capability`
+object with a `reasoningControl` containing ordered native `levels`, an exact
+`profileMap` for every registered profile, and an explicit `maxBumps` value.
+Replace the removed global `enforcement.escalate.reasoningEscalation` block with
+per-tier `reasoningControl.maxBumps`. Invalid legacy keys are rejected and the
+validator points to this migration guidance; there is no compatibility
+inference for the old shapes.
+
 Per [plans/010-adaptive-reasoning.md](../../plans/010-adaptive-reasoning.md) (infrastructure) and [plans/015-adaptive-reasoning-engine.md](../../plans/015-adaptive-reasoning-engine.md) (selector engine):
 
 | Layer | Tests |
 |---|---|
-| Unit — inference | `test/unit/reasoning-capability.test.ts` — all 4 shapes incl. positional-vs-named variant split. |
-| Unit — translation | `test/unit/reasoning-translate.test.ts` — every capability × level; `none` always `null`; 2-level discrete clamping; field routing. |
+| Unit — control | `test/unit/reasoning-capability.test.ts` — native channels and control-free tiers. |
+| Unit — translation | `test/unit/reasoning-translate.test.ts` — profile-to-native resolution and channel routing. |
 | Unit — adaptive matcher | `test/unit/adaptive-match.test.ts` — `normalizeSignalText`; the four `match` modes (`word` / `stem` / `substring` / `regex`); stem cross-word rejection (`latest`✗`test`, `prefix`✗`fix`); inflection (`debug`→`debugging`); invalid regex fail-soft; memoization smoke. |
 | Unit — adaptive selector | `test/unit/adaptive-selector.test.ts` — every `selectAdaptiveLevel` branch: no-config → `null`; trivial; tierDefaults; keyword priority (first match wins); case-insensitivity; description-only match; default fallback; empty inputs; deterministic. As of Plan 018: cross-word regression (`test`✗`latest`, `fix`✗`prefix`); inflection via `stem` (`debug`→`debugging`); strict `word` mode rejecting inflections; `excludeKeywords` skip; phrase whitespace; richer reason (`rule[i] "<kw>" (<mode>) in <source>`); backward-compat for match-less rules. |
-| Unit — adaptive policy validation | `test/unit/config-validate-sections.test.ts` — `validateReasoningPolicy` happy/error paths; rejects empty `keywords`, bad `level`, bad `match` mode, invalid regex; accepts `null` levels. |
-| Unit — policy | `test/unit/reasoning-policy.test.ts` — `static` ALWAYS null; `manual`+override applies; `adaptive` precedence (session override wins → selector → `defaultLevel` → null); `surfaceLimits` does NOT alter resolved patch. |
-| Unit — agent wiring | `test/unit/router-agents.test.ts` — `applyReasoningPatch` + `restoreAgentBaseline` round-trip; `none`-capability NEVER mutated; `resolveReasoningOverride` accepts the new 4-param `signals` argument. |
-| Unit — command | `test/unit/router-commands.test.ts` — `/model-router-reasoning` validates level, persists `mode static|manual|adaptive`, sets/clears store, names capability. |
+| Unit — adaptive policy validation | `test/unit/config-validate-sections.test.ts` — `validateReasoningPolicy` happy/error paths; rejects empty `keywords`, bad `profile`, bad `match` mode, invalid regex; accepts `null` profiles. |
+| Unit — policy | `test/unit/reasoning-policy.test.ts` — `static` ALWAYS null; `manual`+override applies; `adaptive` precedence (session override wins → selector → `defaultProfile` → null); `surfaceLimits` does NOT alter resolved patch. |
+| Unit — agent wiring | `test/unit/router-agents.test.ts` — `applyReasoningPatch` + `restoreAgentBaseline` round-trip; control-free tiers are never mutated; `resolveReasoningOverride` accepts adaptive signals. |
+| Unit — command | `test/unit/router-commands.test.ts` — `/model-router-reasoning` validates registered profiles, persists `mode static|manual|adaptive`, and sets/clears the store. |
 | Unit — hooks | `test/unit/plugin-hooks.test.ts` — `handleConfig` captures baseline; `tool.execute.before/after` patch/restore; under `mode: "adaptive"`, threads `AdaptiveSignals` into the resolver and emits `reasoning.adaptive_selected` when `surfaceDecision: true`. |
 
 Run:

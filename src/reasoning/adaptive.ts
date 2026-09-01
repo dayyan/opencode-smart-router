@@ -42,8 +42,12 @@
 // from provider-specific reasoning channels and stays trivially testable.
 // ---------------------------------------------------------------------------
 
-import type { AdaptivePolicyConfig, ReasoningPolicyConfig } from "../router/config.types.js";
-import type { ReasoningLevel } from "./capability.js";
+import type {
+  AdaptivePolicyConfig,
+  AdaptiveProfileRule,
+  ReasoningPolicyConfig,
+  ReasoningPolicyConfigV2,
+} from "../router/config.types.js";
 import type { MatchMode } from "./match.js";
 import { matchSignal } from "./match.js";
 
@@ -82,7 +86,7 @@ export interface AdaptiveSignals {
  * callers — tests should assert on `level`, not `reason`.
  */
 export interface AdaptiveDecision {
-  level: ReasoningLevel | null;
+  level: string | null;
   reason: string;
 }
 
@@ -93,7 +97,7 @@ export interface AdaptiveDecision {
  *
  * The function is intentionally permissive about null/undefined on level
  * fields: every level on `AdaptivePolicyConfig` is declared
- * `ReasoningLevel | null`, and `null`/absent values are treated identically
+ * `string | null`, and `null`/absent values are treated identically
  * as "fall through to the next decision branch". This lets configs
  * explicitly opt out (e.g. `base.json` ships `"trivialLevel": null`).
  */
@@ -169,4 +173,108 @@ export const selectAdaptiveLevel = (
   }
 
   return { level: adaptive.defaultLevel ?? null, reason: "default level" };
+};
+
+// ---------------------------------------------------------------------------
+// V2 adaptive selector — plan 041
+//
+// Same decision order as the v1 selector, but consequences are profile IDs
+// (from `AdaptiveProfileRule.profile`) instead of normalized levels.
+// Step 4 returns null (no profile selected) — the caller applies
+// `defaultProfile` as the safety net, making step 4 the explicit
+// "no-match → null" fallthrough documented in the design.
+// ---------------------------------------------------------------------------
+
+/**
+ * V2 selector decision — `profile === null` means "no profile selected";
+ * the caller falls through to `defaultProfile`.
+ */
+export interface AdaptiveDecisionV2 {
+  profile: import("../router/config.types.js").ReasoningProfileId | null;
+  reason: string;
+}
+
+/**
+ * V2 adaptive selector: same decision order as `selectAdaptiveLevel`
+ * but operates on v2 `ReasoningPolicyConfigV2` and returns profile IDs.
+ *
+ * Decision order (first match wins):
+ *   1. `policy.adaptive` absent          → { null, "no adaptive config" }
+ *   2. `signals.isTrivial`              → { adaptive.trivialProfile ?? null, "trivial" }
+ *   3. `adaptive.tierProfileDefaults[tierName]` → { that profile, reason }
+ *   4. keyword rules (first match)      → { rule.profile, reason }  OR null (no match)
+ *   5. catch-all                         → { adaptive.defaultProfile ?? null, "default" }
+ *
+ * Step 4 returns null when no keyword matches — the caller applies the
+ * `defaultProfile` safety net, making this step the explicit null fallthrough.
+ */
+export const selectAdaptiveLevelV2 = (
+  signals: AdaptiveSignals,
+  policy: ReasoningPolicyConfigV2 | undefined,
+): AdaptiveDecisionV2 => {
+  const adaptive = policy?.adaptive;
+  if (!adaptive) {
+    return { profile: null, reason: "no adaptive config" };
+  }
+
+  if (signals.isTrivial) {
+    return {
+      profile: adaptive.trivialProfile ?? null,
+      reason: "trivial",
+    };
+  }
+
+  const tierDefault = adaptive.tierProfileDefaults?.[signals.tierName];
+  if (tierDefault !== undefined) {
+    return { profile: tierDefault, reason: `tier default: ${signals.tierName}` };
+  }
+
+  const rules: AdaptiveProfileRule[] | undefined = adaptive.rules;
+  if (Array.isArray(rules)) {
+    for (let i = 0; i < rules.length; i++) {
+      const rule = rules[i];
+      if (!Array.isArray(rule?.keywords)) continue;
+
+      const mode: MatchMode = rule.match ?? "stem";
+      const ex: string[] = Array.isArray(rule.excludeKeywords) ? rule.excludeKeywords : [];
+
+      const excluded = ex.some(
+        (k) =>
+          typeof k === "string" &&
+          k.length > 0 &&
+          (matchSignal(signals.prompt, k, mode) || matchSignal(signals.description, k, mode)),
+      );
+      if (excluded) continue;
+
+      let source: "prompt" | "description" | null = null;
+      const matched = rule.keywords.find((kw) => {
+        if (typeof kw !== "string" || kw.length === 0) return false;
+        if (matchSignal(signals.prompt, kw, mode)) {
+          source = "prompt";
+          return true;
+        }
+        if (matchSignal(signals.description, kw, mode)) {
+          source = "description";
+          return true;
+        }
+        return false;
+      });
+      if (matched !== undefined) {
+        return {
+          profile: rule.profile,
+          reason: `keyword match: rule[${i}] "${matched}" (${mode}) in ${source}`,
+        };
+      }
+      // No keyword matched — step 4 explicitly returns null (fall through
+      // to defaultProfile), which is the no-match outcome documented in the
+      // design. The loop continues to the next rule only if we wanted
+      // multi-match behavior, but since first-match-wins we can short-circuit.
+    }
+  }
+
+  // Step 4 fell through: no keyword matched → null, caller uses defaultProfile.
+  return {
+    profile: policy.defaultProfile ?? null,
+    reason: "default",
+  };
 };

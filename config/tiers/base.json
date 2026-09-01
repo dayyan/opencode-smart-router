@@ -13,33 +13,30 @@
       "ladder": ["fast", "light", "medium", "focused", "heavy"],
       "maxAttemptsPerTier": 2,
       "maxTotalAttempts": 10,
-      "costCeiling": { "multiple": 50 },
-      "reasoningEscalation": {
-        "enabled": true,
-        "maxLevelBumpsPerTier": 2
-      }
+      "costCeiling": { "multiple": 50 }
     }
   },
   "defaultTier": "medium",
   "reasoningPolicy": {
     "mode": "manual",
+    "profiles": ["light", "standard", "deep"],
+    "defaultProfile": "standard",
     "surfaceLimits": false,
     "adaptive": {
-      "trivialLevel": null,
-      "defaultLevel": "normal",
-      "keywordRules": [
+      "trivialProfile": null,
+      "rules": [
         {
           "keywords": ["format", "lint", "rename", "sort import", "bump version", "typo"],
-          "level": "minimal",
+          "profile": "light",
           "excludeKeywords": ["refactor", "architect", "redesign"]
         },
         {
           "keywords": ["root cause", "rca", "security audit", "architecture redesign", "architect", "data migration"],
-          "level": "max"
+          "profile": "deep"
         },
         {
           "keywords": ["refactor", "security", "debug", "diagnose", "investigate", "performance", "profiling", "concurrency", "race condition", "optimize", "optimization", "memory leak", "bottleneck"],
-          "level": "elevated"
+          "profile": "deep"
         }
       ],
       "surfaceDecision": false

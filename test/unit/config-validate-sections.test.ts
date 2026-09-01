@@ -36,7 +36,6 @@ import {
   validateModes,
   validatePreset,
   validatePresets,
-  validateReasoningEscalation,
   validateReasoningPolicy,
   validateReasoningPolicyMode,
   validateRootFields,
@@ -373,53 +372,6 @@ describe("validateEscalateCostCeiling", () => {
   });
 });
 
-describe("validateReasoningEscalation", () => {
-  it("skips when reasoningEscalation is absent or non-object", () => {
-    expect(() => validateReasoningEscalation({})).not.toThrow();
-    expect(() => validateReasoningEscalation({ reasoningEscalation: "x" })).not.toThrow();
-  });
-  it("accepts a valid block with enabled and maxLevelBumpsPerTier", () => {
-    expect(() =>
-      validateReasoningEscalation({
-        reasoningEscalation: { enabled: true, maxLevelBumpsPerTier: 2 },
-      }),
-    ).not.toThrow();
-    expect(() =>
-      validateReasoningEscalation({
-        reasoningEscalation: { enabled: false, maxLevelBumpsPerTier: 0 },
-      }),
-    ).not.toThrow();
-  });
-  it("rejects enabled that is not a boolean", () => {
-    expect(() => validateReasoningEscalation({ reasoningEscalation: { enabled: "yes" } })).toThrow(
-      /reasoningEscalation\.enabled must be a boolean/,
-    );
-    expect(() => validateReasoningEscalation({ reasoningEscalation: { enabled: 1 } })).toThrow(
-      /reasoningEscalation\.enabled must be a boolean/,
-    );
-    expect(() => validateReasoningEscalation({ reasoningEscalation: { enabled: null } })).toThrow(
-      /reasoningEscalation\.enabled must be a boolean/,
-    );
-  });
-  it("rejects maxLevelBumpsPerTier that is negative, fractional, or non-numeric", () => {
-    expect(() =>
-      validateReasoningEscalation({
-        reasoningEscalation: { maxLevelBumpsPerTier: -1 },
-      }),
-    ).toThrow(/maxLevelBumpsPerTier must be an integer >= 0/);
-    expect(() =>
-      validateReasoningEscalation({
-        reasoningEscalation: { maxLevelBumpsPerTier: 1.5 },
-      }),
-    ).toThrow(/maxLevelBumpsPerTier must be an integer >= 0/);
-    expect(() =>
-      validateReasoningEscalation({
-        reasoningEscalation: { maxLevelBumpsPerTier: "2" },
-      }),
-    ).toThrow(/maxLevelBumpsPerTier must be an integer >= 0/);
-  });
-});
-
 describe("validateEnforcementPerTier", () => {
   it("skips when absent or non-object", () => {
     expect(() => validateEnforcementPerTier({})).not.toThrow();
@@ -485,6 +437,205 @@ describe("validateReasoningPolicy", () => {
   });
 });
 
+describe("Plan 041 R-3 — user-owned reasoning policy", () => {
+  const valid = {
+    reasoningPolicy: {
+      mode: "adaptive",
+      profiles: ["p1", "p2"],
+      defaultProfile: "p1",
+      adaptive: {
+        trivialProfile: null,
+        tierProfileDefaults: { fast: "p1" },
+        rules: [{ keywords: ["debug"], profile: "p2" }],
+      },
+    },
+  };
+
+  it("accepts a registered profile policy and profile consequences", () => {
+    expect(() => validateReasoningPolicy(valid)).not.toThrow();
+  });
+
+  it.each([
+    ["duplicate profiles", { profiles: ["p1", "p1"] }],
+    ["unknown default", { profiles: ["p1"], defaultProfile: "p2" }],
+    [
+      "unknown rule profile",
+      { profiles: ["p1"], adaptive: { rules: [{ keywords: ["x"], profile: "p2" }] } },
+    ],
+  ])("rejects %s", (_label, patch) => {
+    expect(() =>
+      validateReasoningPolicy({ reasoningPolicy: { ...valid.reasoningPolicy, ...patch } }),
+    ).toThrow();
+  });
+});
+
+describe("Plan 041 R-3 — reasoningControl validation", () => {
+  const tier = (control: Record<string, unknown>) => ({
+    model: "provider/model",
+    description: "controlled tier",
+    whenToUse: ["tests"],
+    reasoningControl: control,
+  });
+  const valid = {
+    channel: "variant",
+    levels: ["low", "high"],
+    profileMap: { p1: "low", p2: "high" },
+    maxBumps: 1,
+  };
+
+  it("accepts a complete string reasoning control", () => {
+    expect(() => validateTier("preset", "medium", tier(valid))).not.toThrow();
+  });
+
+  it.each([
+    ["invalid channel", { ...valid, channel: "unsupported" }],
+    ["empty levels", { ...valid, levels: [] }],
+    ["duplicate levels", { ...valid, levels: ["low", "low"] }],
+    ["orphan profile map value", { ...valid, profileMap: { p1: "missing", p2: "high" } }],
+    ["blank profile map key", { ...valid, profileMap: { "": "low" } }],
+    ["whitespace profile map key", { ...valid, profileMap: { "   ": "low" } }],
+    ["non-integer maxBumps", { ...valid, maxBumps: 0.5 }],
+    ["maxBumps above ladder", { ...valid, maxBumps: 2 }],
+    ["negative maxBumps", { ...valid, maxBumps: -1 }],
+  ])("rejects %s", (_label, control) => {
+    expect(() => validateTier("preset", "medium", tier(control))).toThrow();
+  });
+
+  // Scenario: Bump switch is required (reasoning-escalation/spec.md:22-24)
+  // A reasoningControl without maxBumps must fail validation — no implicit default.
+  it("rejects reasoningControl with absent maxBumps", () => {
+    const { maxBumps: _maxBumps, ...controlWithoutMaxBumps } = valid;
+    expect(() => validateTier("preset", "medium", tier(controlWithoutMaxBumps))).toThrow(
+      /maxBumps must be an integer/,
+    );
+  });
+
+  it.each(["", "   "])('reports blank profile map key "%s" using the section convention', (key) => {
+    expect(() =>
+      validateTier("preset", "medium", tier({ ...valid, profileMap: { [key]: "low" } })),
+    ).toThrow(
+      "tiers.json: 'preset.medium.reasoningControl'.profileMap keys must be non-empty strings",
+    );
+  });
+
+  it("accepts ascending non-negative budget levels", () => {
+    expect(() =>
+      validateTier(
+        "preset",
+        "medium",
+        tier({
+          channel: "thinking.budgetTokens",
+          levels: [1024, 4096],
+          profileMap: { p1: 1024, p2: 4096 },
+          maxBumps: 1,
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects non-ascending budget levels", () => {
+    expect(() =>
+      validateTier(
+        "preset",
+        "medium",
+        tier({
+          channel: "thinking.budgetTokens",
+          levels: [4096, 1024],
+          profileMap: { p1: 4096, p2: 1024 },
+          maxBumps: 1,
+        }),
+      ),
+    ).toThrow(/strictly ascending/);
+  });
+
+  it("rejects negative budget levels", () => {
+    expect(() =>
+      validateTier(
+        "preset",
+        "medium",
+        tier({
+          channel: "thinking.budgetTokens",
+          levels: [-1, 1024],
+          profileMap: { p1: -1, p2: 1024 },
+          maxBumps: 1,
+        }),
+      ),
+    ).toThrow(/valid non-negative numbers/);
+  });
+
+  it("rejects a profile map missing a registered profile", () => {
+    expect(() =>
+      validateConfig({
+        ...validRaw({
+          reasoningPolicy: { mode: "manual", profiles: ["p1", "p2"], defaultProfile: "p1" },
+          presets: {
+            anthropic: {
+              fast: tier({
+                channel: "variant",
+                levels: ["low"],
+                profileMap: { p1: "low" },
+                maxBumps: 0,
+              }),
+            },
+          },
+        }),
+      }),
+    ).toThrow(/profileMap keys must exactly match/);
+  });
+
+  it("rejects a profile map with an extra profile", () => {
+    expect(() =>
+      validateConfig({
+        ...validRaw({
+          reasoningPolicy: { mode: "manual", profiles: ["p1"], defaultProfile: "p1" },
+          presets: {
+            anthropic: {
+              fast: tier({
+                channel: "variant",
+                levels: ["low"],
+                profileMap: { p1: "low", p2: "low" },
+                maxBumps: 0,
+              }),
+            },
+          },
+        }),
+      }),
+    ).toThrow(/profileMap keys must exactly match/);
+  });
+
+  // Scenario: Bump switch is required (reasoning-escalation/spec.md:22-24)
+  it("rejects reasoningControl with absent maxBumps", () => {
+    const { maxBumps: _maxBumps, ...controlWithoutMaxBumps } = valid;
+    expect(() => validateTier("preset", "medium", tier(controlWithoutMaxBumps))).toThrow(
+      /maxBumps must be an integer/,
+    );
+  });
+
+  it("rejects removed legacy configuration keys with migration guidance", () => {
+    expect(() =>
+      validateConfig(
+        validRaw({
+          presets: {
+            anthropic: {
+              fast: {
+                model: "anthropic/claude-haiku-4-5",
+                description: "fast tier",
+                whenToUse: ["recon"],
+                capability: { kind: "none" },
+              },
+            },
+          },
+        }),
+      ),
+    ).toThrow(/capability.*CONFIG_REFERENCE/);
+    expect(() =>
+      validateConfig(
+        validRaw({ enforcement: { escalate: { reasoningEscalation: { enabled: true } } } }),
+      ),
+    ).toThrow(/reasoningEscalation.*CONFIG_REFERENCE/);
+  });
+});
+
 describe("validateReasoningPolicyMode", () => {
   for (const mode of ["static", "manual", "adaptive"]) {
     it(`accepts mode '${mode}'`, () => {
@@ -528,17 +679,6 @@ describe("validateAdaptivePolicy", () => {
           adaptive: { trivialLevel: level, defaultLevel: level },
         }),
       ).not.toThrow();
-    }
-  });
-
-  it("rejects bogus trivialLevel / defaultLevel", () => {
-    for (const bad of ["bogus", "", 1, false]) {
-      expect(() => validateAdaptivePolicy({ adaptive: { trivialLevel: bad } })).toThrow(
-        /trivialLevel must be one of minimal\|normal\|elevated\|max/,
-      );
-      expect(() => validateAdaptivePolicy({ adaptive: { defaultLevel: bad } })).toThrow(
-        /defaultLevel must be one of minimal\|normal\|elevated\|max/,
-      );
     }
   });
 
@@ -616,15 +756,6 @@ describe("validateKeywordRule", () => {
   it("rejects non-string keywords entries", () => {
     expect(() => validateKeywordRule({ keywords: ["ok", 7], level: "elevated" }, 0)).toThrow(
       /keywordRules\[0\]\.keywords must be an array of strings/,
-    );
-  });
-
-  it("rejects bogus level", () => {
-    expect(() => validateKeywordRule({ keywords: ["debug"], level: "bogus" }, 0)).toThrow(
-      /keywordRules\[0\]\.level must be one of minimal\|normal\|elevated\|max/,
-    );
-    expect(() => validateKeywordRule({ keywords: ["debug"], level: 2 }, 0)).toThrow(
-      /keywordRules\[0\]\.level must be one of/,
     );
   });
 
@@ -722,11 +853,6 @@ describe("validateAdaptiveTierDefaults", () => {
       validateAdaptiveTierDefaults({ fast: "minimal", medium: "normal", heavy: "elevated" }),
     ).not.toThrow();
     expect(() => validateAdaptiveTierDefaults({})).not.toThrow();
-  });
-  it("rejects tier values outside the level set", () => {
-    expect(() => validateAdaptiveTierDefaults({ fast: "bogus" })).toThrow(
-      /tierDefaults\.fast must be one of minimal\|normal\|elevated\|max/,
-    );
   });
 });
 

@@ -503,8 +503,7 @@ describe("Layered config — state overlay", () => {
     );
     const cfg = await readMergedConfig({ cwd: process.cwd() });
     expect(cfg.enforcement).toBeDefined();
-    expect(cfg.enforcement?.escalate?.reasoningEscalation?.enabled).toBe(true);
-    expect(cfg.enforcement?.escalate?.reasoningEscalation?.maxLevelBumpsPerTier).toBe(2);
+    expect("reasoningEscalation" in (cfg.enforcement?.escalate ?? {})).toBe(false);
   });
 
   it("invalid enforcementMode does not wipe out a valid manual enforcement.mode", async () => {
