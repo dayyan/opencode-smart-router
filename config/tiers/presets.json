@@ -354,10 +354,17 @@
     },
     "multi-provider": {
       "fast": {
-        "model": "minimax-coding-plan/MiniMax-M2.1",
+        "model": "opencode-go/qwen-3.8-flash",
         "costRatio": 1,
         "description": "Scout: read-only codebase reconnaissance. Parallel search, grep, glob, file reads, quick lookups. Never modifies files; routes edits back.",
         "steps": 30,
+        "reasoning": { "effort": "medium" },
+        "reasoningControl": {
+          "channel": "reasoning.effort",
+          "levels": ["low", "medium", "xhigh"],
+          "profileMap": { "light": "low", "standard": "medium", "deep": "xhigh" },
+          "maxBumps": 1
+        },
         "whenToUse": [
           "Codebase exploration and parallel search",
           "Locating files and code patterns (grep/glob/ast-grep)",
@@ -375,7 +382,7 @@
           "channel": "reasoning.effort",
           "levels": ["low", "medium", "high", "xhigh", "max"],
           "profileMap": { "light": "low", "standard": "medium", "deep": "max" },
-          "maxBumps": 0
+          "maxBumps": 2
         },
         "whenToUse": [
           "Simple edits and small fixes within one file",
@@ -400,6 +407,7 @@
       },
       "focused": {
         "model": "minimax-coding-plan/MiniMax-M3",
+        "variant": "none",
         "costRatio": 10,
         "description": "Lead Investigator: deep single-system forensics, advisory. Root-cause isolation, performance profiling, one-module review. Advises; spans systems to @heavy.",
         "steps": 80,
@@ -407,7 +415,7 @@
           "channel": "variant",
           "levels": ["none", "thinking"],
           "profileMap": { "light": "none", "standard": "none", "deep": "thinking" },
-          "maxBumps": 0
+          "maxBumps": 1
         },
         "whenToUse": [
           "Deep single-system debugging",
@@ -422,14 +430,14 @@
         "description": "Staff Architect: senior advisory. Architecture, security review, multi-system tradeoffs, migration strategy, RCA after ≥2 prior failures. No self-recon.",
         "steps": 120,
         "reasoning": {
-          "effort": "medium",
+          "effort": "high",
           "summary": "detailed"
         },
         "reasoningControl": {
           "channel": "reasoning.effort",
-          "levels": ["low", "medium", "high", "xhigh"],
-          "profileMap": { "light": "low", "standard": "medium", "deep": "high" },
-          "maxBumps": 0
+          "levels": ["low", "medium", "high", "xhigh", "max"],
+          "profileMap": { "light": "low", "standard": "high", "deep": "max" },
+          "maxBumps": 2
         },
         "whenToUse": [
           "Architecture decisions",

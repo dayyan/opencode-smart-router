@@ -112,6 +112,11 @@
         "openai",
         "anthropic",
         "github-copilot"
+      ],
+      "opencode-go": [
+        "openai",
+        "google",
+        "github-copilot"
       ]
     }
   },

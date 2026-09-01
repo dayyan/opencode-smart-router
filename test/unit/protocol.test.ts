@@ -303,3 +303,59 @@ describe("buildDelegationProtocol — light and focused contracts", () => {
     expect(out).toContain("deep-debug");
   });
 });
+
+describe("buildDelegationProtocol — multi-provider focused reasoningControl", () => {
+  // Focused tier in multi-provider: variant="none", reasoningControl.channel="variant",
+  // levels=["none","thinking"], profileMap standard="none", deep="thinking", maxBumps=1
+  const focusedCfg = {
+    activePreset: "multi-provider",
+    activeMode: "normal",
+    presets: {
+      "multi-provider": {
+        fast: tier("opencode-go/qwen-3.8-flash", { costRatio: 1 }),
+        light: tier("openai/gpt-5.6-luna", { costRatio: 2 }),
+        medium: tier("minimax-coding-plan/MiniMax-M2.7", { costRatio: 5 }),
+        focused: tier("minimax-coding-plan/MiniMax-M3", {
+          costRatio: 10,
+          variant: "none",
+          reasoningControl: {
+            channel: "variant",
+            levels: ["none", "thinking"],
+            profileMap: { light: "none", standard: "none", deep: "thinking" },
+            maxBumps: 1,
+          },
+        }),
+        heavy: tier("openai/gpt-5.6-terra", { costRatio: 20 }),
+      },
+    },
+    rules: ["r1"],
+    defaultTier: "medium",
+    modes: {
+      normal: { defaultTier: "medium", description: "d" },
+    },
+    taskPatterns: {
+      fast: ["search"],
+      light: ["simple-edit"],
+      medium: ["impl-feature"],
+      focused: ["deep-debug"],
+      heavy: ["arch-design"],
+    },
+  } as unknown as RouterConfig;
+
+  it("renders focused variant none in the tier line", () => {
+    const out = buildDelegationProtocol(focusedCfg);
+    // variant:none appears in the tier descriptor for focused
+    expect(out).toContain("MiniMax-M3/none");
+  });
+
+  it("includes focused tier contract section", () => {
+    const out = buildDelegationProtocol(focusedCfg);
+    expect(out).toContain("### @focused contract");
+  });
+
+  it("renders bump semantics for focused tier", () => {
+    const out = buildDelegationProtocol(focusedCfg);
+    // focused has maxBumps=1, so bump semantics are active for this tier
+    expect(out).toContain("@focused");
+  });
+});
