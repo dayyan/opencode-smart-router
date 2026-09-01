@@ -398,7 +398,7 @@ state  >  local  >  global  >  bundled
 | Source | Purpose |
 | --- | --- |
 | `config/tiers/base.json` | `activePreset`, `activeMode`, `tierCaps`, `enforcement`, `reasoningPolicy` |
-| `config/tiers/presets.json` | All preset definitions (tiers, models, `costRatio`, `steps`, `capability`) |
+| `config/tiers/presets.json` | All preset definitions (tiers, models, `costRatio`, `steps`, and optional `reasoningControl`) |
 | `config/tiers/prompts.json` | `tierPrompts` and orchestrator prompt fragments |
 | `config/tiers/task-patterns.json` | `taskPatterns` and default `rules` |
 
@@ -746,7 +746,7 @@ Applies to all models, not only Claude — but the prompt-level clause is Claude
 
 ### Reasoning control
 
-Per-tier reasoning is configurable at runtime via the `/model-router-reasoning` command and an optional `reasoningPolicy` block in `tiers.json`. See [docs/REASONING.md](./docs/REASONING.md) for the full capability model, normalized level vocabulary, translation rules, and the documented 3-level-ladder collapse quirk.
+Per-tier reasoning is configurable at runtime via the `/model-router-reasoning` command and an optional `reasoningPolicy` block in `tiers.json`. See [docs/REASONING.md](./docs/REASONING.md) for the native-level control model, profile registry, and translation rules.
 
 Minimal example:
 
@@ -761,7 +761,12 @@ Minimal example:
       "light": {
         "model": "openai/gpt-5.6-luna",
         "reasoning": { "effort": "medium" },
-        "capability": { "kind": "discrete", "field": "reasoning.effort", "levels": ["low", "medium", "high", "xhigh", "max"] }
+        "reasoningControl": {
+          "channel": "reasoning.effort",
+          "levels": ["low", "medium", "high", "xhigh", "max"],
+          "profileMap": { "p1": "low", "p2": "medium", "p3": "high" },
+          "maxBumps": 2
+        }
       }
     }
   }
@@ -902,7 +907,7 @@ Repository-only docs (not bundled in the npm tarball). Contributors and advanced
 - [docs/ENFORCEMENT.md](./docs/ENFORCEMENT.md) — architecture, hook wiring, session lifecycle.
 - [docs/VERIFICATION.md](./docs/VERIFICATION.md) — DoD schema, deterministic checks, grader dispatch.
 - [docs/ESCALATION.md](./docs/ESCALATION.md) — escalation ladder configuration and cost ceilings.
-- [docs/REASONING.md](./docs/REASONING.md) — reasoning control, capability model, normalized level vocabulary.
+- [docs/REASONING.md](./docs/REASONING.md) — reasoning control, profile registry, and native-level translation.
 - [docs/ENFORCEMENT_PRESETS.md](./docs/ENFORCEMENT_PRESETS.md) — ready-to-paste enforcement presets.
 - [docs/MIGRATION.md](./docs/MIGRATION.md) — upgrade notes between versions.
 - [docs/CAPS_DECISION.md](./docs/CAPS_DECISION.md) — tool-call caps per tier, language hardness, exceptions.
@@ -948,3 +953,10 @@ The exact overhead has tracked release-over-release; for the current value, see 
 ## License
 
 GPL-3.0 — see [LICENSE](./LICENSE).
+# Plan 041 migration
+
+Reasoning configuration uses v2 `reasoningControl` objects. Migrate legacy
+`capability` tier fields and the global `reasoningEscalation` block to ordered
+native levels, an exact profile map, and per-tier `maxBumps`. Legacy keys are
+rejected during validation; see `docs/CONFIG_REFERENCE.md` for the migration
+contract.

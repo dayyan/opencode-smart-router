@@ -13,11 +13,7 @@
       "ladder": ["fast", "light", "medium", "focused", "heavy"],
       "maxAttemptsPerTier": 2,
       "maxTotalAttempts": 10,
-      "costCeiling": { "multiple": 50 },
-      "reasoningEscalation": {
-        "enabled": true,
-        "maxLevelBumpsPerTier": 2
-      }
+      "costCeiling": { "multiple": 50 }
     }
   },
   "defaultTier": "medium",

@@ -249,12 +249,7 @@ export const handleCommandBefore = async (
       if (sessionID) ctx.reasoningStore.clearOverride(sessionID);
     } else {
       const policy = cfg.reasoningPolicy as ReasoningPolicyConfigV2 | undefined;
-      const legacyProfile = ["minimal", "normal", "elevated", "max"].includes(profile);
-      if (
-        (policy?.profiles?.includes(profile) ||
-          (!Array.isArray(policy?.profiles) && legacyProfile)) &&
-        sessionID
-      ) {
+      if (policy?.profiles?.includes(profile) && sessionID) {
         ctx.reasoningStore.setOverride(sessionID, profile);
       }
     }

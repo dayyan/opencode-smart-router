@@ -258,6 +258,49 @@ describe("createConfigStore — stale-aware read()", () => {
     vi.setSystemTime(new Date("2026-06-26T12:05:00.000Z"));
     await expect(store.read()).resolves.toBeDefined();
   });
+
+  // Scenario: Invalid v2 reload is atomic (reasoning-config/spec)
+  // When auto-refresh encounters an invalid v2 config document (one that fails
+  // validation, e.g., reasoningControl without maxBumps), the previous valid
+  // config remains served — stale-serve atomicity.
+  it("serves previous valid config when auto-refresh encounters an invalid v2 config", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-26T12:00:00.000Z"));
+    const store = createConfigStore({ cwd: tmpCwd, ttlMs: 60_000 });
+    const initial = await store.read();
+    expect(initial.activePreset).toBe("multi-provider"); // from bundled tiers.json
+
+    // Stage an invalid local override: reasoningControl without maxBumps.
+    // This fails validation at the merged-config level (not disk-read level).
+    stageLocal(
+      tmpCwd,
+      JSON.stringify({
+        activePreset: "openai",
+        presets: {
+          openai: {
+            heavy: {
+              model: "openai/gpt-5.4-mini-fast",
+              description: "invalid — missing maxBumps",
+              whenToUse: [],
+              reasoningControl: {
+                channel: "variant",
+                levels: ["low", "high"],
+                profileMap: { p1: "low", p2: "high" },
+                // maxBumps intentionally absent — validator must reject this
+              },
+            },
+          },
+        },
+      }),
+    );
+
+    vi.setSystemTime(new Date("2026-06-26T12:05:00.000Z"));
+    // The stale-serve path must not throw — previous valid config is served.
+    const result = await store.read();
+    expect(result.activePreset).toBe("multi-provider");
+    // Cache must NOT have been replaced.
+    expect(store.loadedAtMs()).toBe(new Date("2026-06-26T12:00:00.000Z").getTime());
+  });
 });
 
 // ---------------------------------------------------------------------------

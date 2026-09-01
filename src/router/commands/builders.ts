@@ -18,35 +18,11 @@
 // ---------------------------------------------------------------------------
 
 import type { PluginContext } from "../../plugin/context";
-import type { ReasoningCapability, ReasoningLevel } from "../../reasoning/capability.js";
-import { inferCapability } from "../../reasoning/capability.js";
-import { patchAtIndex, resolveControlPatch, translateLevel } from "../../reasoning/translate.js";
+import { patchAtIndex, resolveControlPatch } from "../../reasoning/translate.js";
 import type { ReasoningControl, ReasoningPolicyConfigV2, RouterConfig } from "../config";
 import { resolvePresetName } from "../config";
 import { resolveEnforcementMode } from "../enforcement";
 import { getActiveTiers } from "../protocol";
-
-const LEGACY_REASONING_LEVELS: ReadonlySet<ReasoningLevel> = new Set([
-  "minimal",
-  "normal",
-  "elevated",
-  "max",
-]);
-
-const describeLegacyCapability = (tierName: string, cap: ReasoningCapability): string => {
-  switch (cap.kind) {
-    case "none":
-      return `@${tierName}: no reasoning control (the tier is left as-is).`;
-    case "binary":
-      return `@${tierName}: binary variant (elevated: ${cap.elevated}${cap.baseline ? `, baseline: ${cap.baseline}` : ""}).`;
-    case "discrete":
-      return `@${tierName}: discrete ${cap.field === "variant" ? "variant" : "reasoning_effort"} ladder [${cap.levels.join(" < ")}].`;
-    case "budgeted":
-      return `@${tierName}: budgeted (thinking tokens per level: ${Object.entries(cap.recommended)
-        .map(([key, value]) => `${key}=${value}`)
-        .join(", ")}).`;
-  }
-};
 
 // ---------------------------------------------------------------------------
 // /router command output
@@ -256,8 +232,7 @@ export const buildReasoningOutput = async (
   const policy = cfg.reasoningPolicy as ReasoningPolicyConfigV2 | undefined;
   const surfaceLimits = policy?.surfaceLimits === true;
   const policyMode = policy?.mode ?? "static";
-  const isV2 = Array.isArray(policy?.profiles);
-  const profiles = isV2 ? (policy.profiles ?? []) : [...LEGACY_REASONING_LEVELS];
+  const profiles = policy?.profiles ?? [];
 
   const tokens = (args ?? "").trim().split(/\s+/).filter(Boolean);
   const sub = (tokens[0] ?? "").toLowerCase();
@@ -273,11 +248,9 @@ export const buildReasoningOutput = async (
     ];
     for (const [name, tier] of Object.entries(tiers)) {
       lines.push(
-        isV2
-          ? tier.reasoningControl
-            ? `@${name}: ${describeControl(tier.reasoningControl)}`
-            : `@${name}: no reasoning control (the tier is left as-is).`
-          : describeLegacyCapability(name, inferCapability(tier)),
+        tier.reasoningControl
+          ? `@${name}: ${describeControl(tier.reasoningControl)}`
+          : `@${name}: no reasoning control (the tier is left as-is).`,
       );
     }
     lines.push(
@@ -330,27 +303,6 @@ export const buildReasoningOutput = async (
   }
 
   const profile = tokens[0] ?? "";
-  if (!isV2) {
-    if (!LEGACY_REASONING_LEVELS.has(profile as ReasoningLevel)) {
-      return `Unknown level: "${profile}". Use one of: minimal, normal, elevated, max (or "off" to clear). Run '/model-router-reasoning mode' to switch the policy.`;
-    }
-    const tiers = getActiveTiers(cfg);
-    const lines = [
-      `Reasoning override set to **${profile}** for this session.`,
-      "",
-      "Per-tier behaviour:",
-    ];
-    for (const [name, tier] of Object.entries(tiers)) {
-      const resolved = translateLevel(inferCapability(tier), profile as ReasoningLevel);
-      if (!resolved) continue;
-      if (resolved.variant !== undefined)
-        lines.push(`- @${name}: variant = '${resolved.variant}'.`);
-      if (resolved.options)
-        lines.push(`- @${name}: options = ${JSON.stringify(resolved.options)}.`);
-    }
-    lines.push("", "Takes effect on the next `task` dispatch in this session.");
-    return lines.join("\n");
-  }
   if (!profiles.includes(profile)) {
     return `Unknown profile: "${profile}". Use one of: ${profiles.join(", ")} (or "off" to clear).`;
   }

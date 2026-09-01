@@ -25,7 +25,7 @@ Pure, provably terminating. Evaluated in order; first match wins.
 | 1 | `verdict.pass === true` | **ACCEPT** |
 | 2 | `totalAttempts >= maxTotalAttempts` | **GIVE_UP** ("max total attempts") |
 | 3 | `cumulativeCost > firstAttemptCost × costMultiple` | **GIVE_UP** ("cost ceiling exceeded") |
-| 4 | bump eligible (`reasoningEscalation.enabled`, tier has a reasoning ladder, bumps remaining, verdict cause = `verification_fail`) AND rungs remain above current level | **BUMP** reasoning level within the same tier (does not consume the retry budget) |
+| 4 | bump eligible (tier has `reasoningControl`, `maxBumps` remains, verdict cause = `verification_fail`) AND a higher native rung remains | **BUMP** reasoning within the same tier (does not consume the retry budget) |
 | 5 | bump eligible but already at top rung | **ESCALATE** to next tier |
 | 6 | `attemptsThisTier < maxAttemptsPerTier` | **RETRY** same tier |
 | 7 | higher tier exists in ladder | **ESCALATE** |
@@ -51,14 +51,12 @@ Returns the scrubbed best producer text and scrubbed failure reasons. Never a fa
 | `maxAttemptsPerTier` | `1` |
 | `maxTotalAttempts` | `4` |
 | `costCeiling.multiple` | `4` |
-| `reasoningEscalation.enabled` | `false` |
-| `reasoningEscalation.maxLevelBumpsPerTier` | `2` |
 
 `floorTier` pins the minimum starting tier, skipping cheap rungs for predictably-hard tasks.
 
-`reasoningEscalation.enabled` enables the bump branch: on verification FAIL, the tier's reasoning level is raised before falling back to retries or tier escalation. `reasoningEscalation.maxLevelBumpsPerTier` caps how many reason-level bumps are allowed within one tier. Bumps do NOT count against `maxAttemptsPerTier` — that field counts retry attempts only, applied AFTER reasoning bumps are exhausted.
+When a controlled tier has remaining `reasoningControl.maxBumps`, a verification FAIL raises its native reasoning value before falling back to retries or tier escalation. Bumps do NOT count against `maxAttemptsPerTier`; that field counts retry attempts after native bumps are exhausted.
 
-Worst-case produce attempts per tier = 1 (initial) + `maxLevelBumpsPerTier` (bumps) + `maxAttemptsPerTier` (retries). Every attempt (bumps included) also counts toward `maxTotalAttempts`, which is the hard global bound.
+Worst-case produce attempts per tier = 1 (initial) + `reasoningControl.maxBumps` (bumps) + `maxAttemptsPerTier` (retries). Every attempt (bumps included) also counts toward `maxTotalAttempts`, which is the hard global bound.
 
 ## Cost ceiling worked example
 
@@ -101,3 +99,9 @@ Precedence: API error ⇒ (advisory) provider failover; verification FAIL ⇒ (r
 ## Layer-1 guard coverage
 
 Escalated re-dispatches run in fresh plugin-created producer sessions that are registered so Layer-1 still guards them.
+# Plan 041 migration
+
+Reasoning bump limits are now owned by each tier's `reasoningControl.maxBumps`.
+Remove the legacy global `enforcement.escalate.reasoningEscalation` block and
+configure an explicit integer cap per controlled tier. The old key is rejected
+with a pointer to the migration guidance in `docs/CONFIG_REFERENCE.md`.

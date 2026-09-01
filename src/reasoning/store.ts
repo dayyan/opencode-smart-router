@@ -4,7 +4,7 @@
 // Mirrors `src/guard/store.ts` (closure-factory pattern, Map keyed by
 // sessionID / tier name). Owns three concerns:
 //
-//   1. Per-session override (`set/get/clear` for a `ReasoningLevel`)
+//   1. Per-session override (`set/get/clear` for an opaque profile ID)
 //   2. Per-tier baseline (`set/get` for the static agent def, captured once
 //      at config time so the runtime `tool.execute.after` hook can restore it
 //      after a `tool.execute.before` patch)
@@ -19,8 +19,6 @@
 // `log.debug({ event: "reasoning.patch_applied" | "reasoning.patch_unsupported" })`
 // instead.
 // ---------------------------------------------------------------------------
-
-import type { ReasoningLevel } from "./capability.js";
 
 /**
  * Static agent def snapshot taken at config time. The runtime
@@ -43,10 +41,8 @@ export const createReasoningStore = () => {
 
   return {
     // ----- session override ------------------------------------------------
-    // The legacy return annotation is retained until the v1 policy callers are
-    // removed; values are opaque strings at runtime in the v2 path.
-    getOverride(sessionID: string): ReasoningLevel | undefined {
-      return overrides.get(sessionID) as ReasoningLevel | undefined;
+    getOverride(sessionID: string): string | undefined {
+      return overrides.get(sessionID);
     },
     setOverride(sessionID: string, profile: string): void {
       overrides.set(sessionID, profile);

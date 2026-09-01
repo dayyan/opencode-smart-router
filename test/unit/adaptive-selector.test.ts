@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { selectAdaptiveLevel } from "../../src/reasoning/adaptive";
-import type { ReasoningLevel } from "../../src/reasoning/capability";
 import type { AdaptivePolicyConfig, ReasoningPolicyConfig } from "../../src/router/config.types";
 
 // ---------------------------------------------------------------------------
@@ -494,7 +493,7 @@ describe("selectAdaptiveLevel — decision reasons (smoke)", () => {
     name: string;
     policy: ReasoningPolicyConfig;
     signals: Parameters<typeof selectAdaptiveLevel>[0];
-    expected: { level: ReasoningLevel | null; reason: string };
+    expected: { level: string | null; reason: string };
   }> = [
     {
       name: "no adaptive config",

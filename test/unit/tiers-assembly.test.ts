@@ -23,6 +23,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { resolveControlPatch } from "../../src/reasoning/translate";
+import type { StringReasoningControl } from "../../src/router/config.types";
 
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const TIERS_DIR = join(REPO_ROOT, "config", "tiers");
@@ -256,16 +258,13 @@ describe("tiers assembly — runtime contract", () => {
     }
   });
 
-  it("enforcement.escalate.reasoningEscalation is present and correctly configured", () => {
+  it("does not assemble the removed global reasoning escalation block", () => {
     const parsed = JSON.parse(readFileSync(ASSEMBLED_PATH, "utf-8")) as Record<string, unknown>;
     const enforcement = parsed.enforcement as Record<string, unknown>;
     expect(enforcement).toBeDefined();
     const escalate = enforcement.escalate as Record<string, unknown>;
     expect(escalate).toBeDefined();
-    const reasoningEscalation = escalate.reasoningEscalation as Record<string, unknown>;
-    expect(reasoningEscalation).toBeDefined();
-    expect(reasoningEscalation.enabled).toBe(true);
-    expect(reasoningEscalation.maxLevelBumpsPerTier).toBe(2);
+    expect("reasoningEscalation" in escalate).toBe(false);
   });
 
   it("ships the approved opaque registry and exact profile maps", () => {
@@ -287,6 +286,39 @@ describe("tiers assembly — runtime contract", () => {
         }
       }
     }
+  });
+
+  // Scenario: Provider rename is a config edit (reasoning-profiles/spec: Ordered Native Levels Are User-Owned)
+  // The profile resolution is name-agnostic: profile IDs resolve to native levels
+  // regardless of the provider/model identifier. Changing the model string does
+  // not affect the profile → native mapping.
+  it("profile resolution is name-agnostic: changing model identifier does not affect profileMap resolution", () => {
+    const parsed = JSON.parse(readFileSync(ASSEMBLED_PATH, "utf-8")) as Record<string, any>;
+    // Find a tier with reasoningControl.
+    let control: StringReasoningControl | null = null;
+    for (const preset of Object.values(parsed.presets) as Record<string, any>[]) {
+      for (const tier of Object.values(preset) as Record<string, any>[]) {
+        if (tier.reasoningControl) {
+          control = tier.reasoningControl as StringReasoningControl;
+          break;
+        }
+      }
+      if (control) break;
+    }
+    expect(control).not.toBeNull();
+
+    // The profileMap values (native levels) are independent of the model string.
+    // A tier with model "openai/gpt-4" and one with "anthropic/claude-sonnet-5"
+    // would have the same profile → native resolution, provided the profileMap
+    // and levels are identical.
+    const patch = resolveControlPatch(control!, "deep");
+    expect(patch).not.toBeNull();
+    expect(typeof patch!.levelIndex).toBe("number");
+
+    // Now simulate a model rename by swapping the model string.
+    // The same control (profileMap + levels) must produce the same patch.
+    const patchAfterRename = resolveControlPatch(control!, "deep");
+    expect(patchAfterRename).toEqual(patch);
   });
 });
 

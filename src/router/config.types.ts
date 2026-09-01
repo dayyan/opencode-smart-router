@@ -4,17 +4,8 @@
 // Pure types and small predicates. No file IO, no module-level state.
 // ---------------------------------------------------------------------------
 
-// Re-export the canonical reasoning types from `src/reasoning/capability.ts`.
-// `capability.ts` is the canonical home (single source of truth for the
-// capability model + inference); `config.types.ts` re-exports so existing
-// `import { ReasoningCapability } from "./config"` style keeps working
-// without forcing every consumer to learn the new module path.
-export type {
-  ReasoningCapability,
-  ReasoningControlChannel,
-  ReasoningField,
-  ReasoningLevel,
-} from "../reasoning/capability.js";
+// Re-export the canonical reasoning channel type from `capability.ts`.
+export type { ReasoningControlChannel } from "../reasoning/capability.js";
 
 export interface ThinkingConfig {
   budgetTokens?: number;
@@ -36,13 +27,6 @@ export interface TierConfig {
   steps?: number;
   prompt?: string;
   whenToUse: string[];
-  /**
-   * Optional explicit capability declaration for this tier. When present,
-   * `resolveReasoningOverride` (PR 2 of adaptive-reasoning) consults this
-   * before falling back to `inferCapability(tier)`. Leaving it absent keeps
-   * pre-Plan-010 configs working unchanged.
-   */
-  capability?: import("../reasoning/capability.js").ReasoningCapability;
   /**
    * V2 per-tier reasoning control (plan 041). Replaces `capability`.
    * A tier without `reasoningControl` has no reasoning control, cannot bump,
@@ -93,17 +77,9 @@ export interface EnforcementConfig {
   escalate?: {
     floorTier?: string | null;
     ladder?: string[];
-    /**
-     * Retries allowed within a tier AFTER its reasoning-level bumps are
-     * exhausted (bumps run first when reasoningEscalation.enabled). Worst-case
-     * produce attempts per tier = 1 (initial) + maxLevelBumpsPerTier (bumps)
-     * + this field (retries). Every attempt also counts toward
-     * maxTotalAttempts, which is the hard global bound.
-     */
     maxAttemptsPerTier?: number;
     maxTotalAttempts?: number;
     costCeiling?: { base?: string; multiple?: number };
-    reasoningEscalation?: ReasoningEscalationConfig;
   };
   proportional?: { trivialBypass?: boolean; trivialClassifier?: string };
 }
@@ -125,7 +101,7 @@ export interface AdaptiveKeywordRule {
   /** Case-insensitive terms; a match in prompt OR description wins. */
   keywords: string[];
   /** Level applied when any keyword matches. */
-  level: import("../reasoning/capability.js").ReasoningLevel;
+  level: string;
   /**
    * Match strategy for this rule's `keywords` AND `excludeKeywords`. Defaults
    * to `"stem"` (word-boundary start; suffix inflections allowed on the LAST
@@ -167,9 +143,9 @@ export interface AdaptiveKeywordRule {
  */
 export interface AdaptivePolicyConfig {
   /** Level for tasks the classifier marks trivial. `null`/absent → no patch. */
-  trivialLevel?: import("../reasoning/capability.js").ReasoningLevel | null;
+  trivialLevel?: string | null;
   /** Level for non-trivial tasks that match no keyword rule. `null`/absent → no patch. */
-  defaultLevel?: import("../reasoning/capability.js").ReasoningLevel | null;
+  defaultLevel?: string | null;
   /**
    * Keyword rules: each rule's `keywords` are matched in prompt OR
    * description under the rule's `match` mode (default `"stem"` —
@@ -180,7 +156,7 @@ export interface AdaptivePolicyConfig {
   keywordRules?: AdaptiveKeywordRule[];
   /** Per-tier default override. Keyed by tier name. Wins over `keywordRules`
    *  and `defaultLevel`, loses only to `trivialLevel`. */
-  tierDefaults?: Record<string, import("../reasoning/capability.js").ReasoningLevel>;
+  tierDefaults?: Record<string, string>;
   /** When true, emit a debug log for every adaptive decision (level + reason). */
   surfaceDecision?: boolean;
 }
@@ -190,13 +166,6 @@ export interface AdaptivePolicyConfig {
  * before falling back to the next tier. Feature is OFF by default (enabled
  * must be explicitly true to activate).
  */
-export interface ReasoningEscalationConfig {
-  /** Enable level-bump within the same tier on verification failure. */
-  enabled?: boolean;
-  /** Maximum number of level bumps permitted per tier before escalating. Default: 2. */
-  maxLevelBumpsPerTier?: number;
-}
-
 /**
  * Reasoning policy mode and per-session override knobs.
  *
@@ -215,7 +184,7 @@ export interface ReasoningEscalationConfig {
  */
 export interface ReasoningPolicyConfig {
   mode?: "static" | "manual" | "adaptive";
-  defaultLevel?: import("../reasoning/capability.js").ReasoningLevel;
+  defaultLevel?: string;
   surfaceLimits?: boolean;
   /** Adaptive-mode knobs. Only consulted when `mode === "adaptive"`. */
   adaptive?: AdaptivePolicyConfig;
@@ -321,7 +290,7 @@ export interface RouterConfig {
   experimental?: { verifiedDelegateTool?: boolean };
   /** PR 2 of adaptive-reasoning: per-tier override + runtime patch wiring.
    *  All fields optional → pre-change configs work unedited. */
-  reasoningPolicy?: ReasoningPolicyConfig;
+  reasoningPolicy?: ReasoningPolicyConfigV2;
 }
 
 export interface RouterState {

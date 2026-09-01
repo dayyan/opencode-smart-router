@@ -23,19 +23,13 @@
 //                      2. `selectAdaptiveLevel(signals, policy)` result
 //                      3. `policy.defaultLevel` as a safety net
 //                      4. null (no patch — agent def left at baseline)
-//                  Every resolved level is passed through `translateLevel`
+//                  Every resolved level is passed through the tier control.
 //                  so capability gating still applies; adaptive only picks
 //                  the normalized level, not the provider-specific patch.
 // ---------------------------------------------------------------------------
 
-import type {
-  ReasoningPolicyConfig,
-  ReasoningPolicyConfigV2,
-  TierConfig,
-} from "../router/config.types.js";
-import { type AdaptiveSignals, selectAdaptiveLevel, selectAdaptiveLevelV2 } from "./adaptive.js";
-import { inferCapability, type ReasoningLevel } from "./capability.js";
-import { type ResolvedReasoning, translateLevel } from "./translate.js";
+import type { ReasoningPolicyConfigV2 } from "../router/config.types.js";
+import { type AdaptiveSignals, selectAdaptiveLevelV2 } from "./adaptive.js";
 
 /**
  * Resolve the effective reasoning patch for a tier under the configured policy.
@@ -58,7 +52,7 @@ import { type ResolvedReasoning, translateLevel } from "./translate.js";
  *   - no level resolves (no override + no adaptive block + no defaultLevel),
  *     OR
  *   - the tier's capability cannot satisfy the level (`none`, or `binary`
- *     with no baseline for a low-rank level — see `translateLevel`).
+ *     with no baseline for a low-rank level.
  *
  * `surfaceLimits` is intentionally NOT consulted here — surfacing is a
  * presentation concern owned by the `/reasoning` command handler and the
@@ -66,56 +60,6 @@ import { type ResolvedReasoning, translateLevel } from "./translate.js";
  * resolved patch is identical regardless of its value (proved in
  * `reasoning-policy.test.ts`).
  */
-export const resolveReasoningOverride = (
-  tier: TierConfig,
-  policy: ReasoningPolicyConfig | undefined,
-  sessionOverride: ReasoningLevel | undefined,
-  signals: AdaptiveSignals,
-): ResolvedReasoning => {
-  const mode = policy?.mode ?? "static";
-
-  // Primary regression guard: static mode is a hard no-op, regardless of any
-  // session override. This keeps the agent def exactly as `registerTierAgents`
-  // produced it when `reasoningPolicy` is absent or `mode === "static"`.
-  if (mode === "static") return null;
-
-  // Manual mode: pre-Plan-015 semantics, unchanged. A per-session override
-  // wins over `policy.defaultLevel`; either way we translate through the
-  // tier's capability.
-  if (mode === "manual") {
-    const level = sessionOverride ?? policy?.defaultLevel;
-    if (!level) return null;
-    const cap = tier.capability ?? inferCapability(tier);
-    return translateLevel(cap, level);
-  }
-
-  // Unknown mode gate (fail-soft): any mode value that is not exactly one
-  // of the three recognized modes (`static` / `manual` / `adaptive`) MUST
-  // resolve to null. This catches typos (e.g. `"adaptive-typo"`) and any
-  // future-unknown string BEFORE adaptive selection runs, so a malformed
-  // config can never silently elevate reasoning. Adding a new mode requires
-  // touching this gate so the call site cannot drift past it unnoticed.
-  if (mode !== "adaptive") return null;
-
-  // mode === "adaptive"
-  // Precedence (highest first; mirroring the file header):
-  //   1. explicit `sessionOverride` (always wins)
-  //   2. `selectAdaptiveLevel(signals, policy)` result
-  //   3. `policy.defaultLevel` as a safety net
-  //   4. null (no patch — agent def left at baseline)
-  if (sessionOverride) {
-    const cap = tier.capability ?? inferCapability(tier);
-    return translateLevel(cap, sessionOverride);
-  }
-
-  const decision = selectAdaptiveLevel(signals, policy);
-  const level = decision.level ?? policy?.defaultLevel;
-  if (!level) return null;
-
-  const cap = tier.capability ?? inferCapability(tier);
-  return translateLevel(cap, level);
-};
-
 // ---------------------------------------------------------------------------
 // resolveReasoningProfile — plan 041 D-1 tier-agnostic helper
 //

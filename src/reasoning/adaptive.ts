@@ -48,7 +48,6 @@ import type {
   ReasoningPolicyConfig,
   ReasoningPolicyConfigV2,
 } from "../router/config.types.js";
-import type { ReasoningLevel } from "./capability.js";
 import type { MatchMode } from "./match.js";
 import { matchSignal } from "./match.js";
 
@@ -87,7 +86,7 @@ export interface AdaptiveSignals {
  * callers — tests should assert on `level`, not `reason`.
  */
 export interface AdaptiveDecision {
-  level: ReasoningLevel | null;
+  level: string | null;
   reason: string;
 }
 
@@ -98,7 +97,7 @@ export interface AdaptiveDecision {
  *
  * The function is intentionally permissive about null/undefined on level
  * fields: every level on `AdaptivePolicyConfig` is declared
- * `ReasoningLevel | null`, and `null`/absent values are treated identically
+ * `string | null`, and `null`/absent values are treated identically
  * as "fall through to the next decision branch". This lets configs
  * explicitly opt out (e.g. `base.json` ships `"trivialLevel": null`).
  */

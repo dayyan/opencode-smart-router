@@ -6,7 +6,6 @@
         "costRatio": 1,
         "description": "Scout: read-only codebase reconnaissance. Parallel search, grep, glob, file reads, quick lookups. Never modifies files; routes edits back.",
         "steps": 30,
-        "capability": { "kind": "none" },
         "whenToUse": [
           "Codebase exploration and parallel search",
           "Locating files and code patterns (grep/glob/ast-grep)",
@@ -80,7 +79,6 @@
         "costRatio": 1,
         "description": "Scout: read-only codebase reconnaissance. Parallel search, grep, glob, file reads, quick lookups. Never modifies files; routes edits back.",
         "steps": 30,
-        "capability": { "kind": "none" },
         "whenToUse": [
           "Codebase exploration and parallel search",
           "Locating files and code patterns (grep/glob/ast-grep)",
@@ -154,7 +152,6 @@
         "costRatio": 1,
         "description": "Scout: read-only codebase reconnaissance. Parallel search, grep, glob, file reads, quick lookups. Never modifies files; routes edits back.",
         "steps": 30,
-        "capability": { "kind": "none" },
         "whenToUse": [
           "Codebase exploration and parallel search",
           "Locating files and code patterns (grep/glob/ast-grep)",
@@ -167,7 +164,6 @@
         "costRatio": 2,
         "description": "Patcher: surgical single-file edits from a complete spec. Simple fixes, config tweaks, localized refactoring. Escalates on cross-file scope growth.",
         "steps": 40,
-        "capability": { "kind": "none" },
         "whenToUse": [
           "Simple edits and small fixes within one file",
           "Config tweaks and parameter changes",
@@ -180,7 +176,6 @@
         "costRatio": 5,
         "description": "Builder: standard implementation. Features, refactoring, tests, code review, build-fixes. Matches existing patterns; runs targeted verification only.",
         "steps": 50,
-        "capability": { "kind": "none" },
         "whenToUse": [
           "Feature implementation (multi-file allowed)",
           "Refactoring",
@@ -195,7 +190,6 @@
         "costRatio": 10,
         "description": "Lead Investigator: deep single-system forensics, advisory. Root-cause isolation, performance profiling, one-module review. Advises; spans systems to @heavy.",
         "steps": 80,
-        "capability": { "kind": "none" },
         "whenToUse": [
           "Deep single-system debugging",
           "Complex bug isolation in one module/package",
@@ -226,7 +220,6 @@
         "costRatio": 1,
         "description": "Scout: read-only codebase reconnaissance. Parallel search, grep, glob, file reads, quick lookups. Never modifies files; routes edits back.",
         "steps": 30,
-        "capability": { "kind": "none" },
         "whenToUse": [
           "Codebase exploration and parallel search",
           "Locating files and code patterns (grep/glob/ast-grep)",
@@ -239,7 +232,6 @@
         "costRatio": 2,
         "description": "Patcher: surgical single-file edits from a complete spec. Simple fixes, config tweaks, localized refactoring. Escalates on cross-file scope growth.",
         "steps": 40,
-        "capability": { "kind": "none" },
         "whenToUse": [
           "Simple edits and small fixes within one file",
           "Config tweaks and parameter changes",
@@ -252,7 +244,6 @@
         "costRatio": 5,
         "description": "Builder: standard implementation. Features, refactoring, tests, code review, build-fixes. Matches existing patterns; runs targeted verification only.",
         "steps": 50,
-        "capability": { "kind": "none" },
         "whenToUse": [
           "Feature implementation (multi-file allowed)",
           "Refactoring",
@@ -267,7 +258,6 @@
         "costRatio": 10,
         "description": "Lead Investigator: deep single-system forensics, advisory. Root-cause isolation, performance profiling, one-module review. Advises; spans systems to @heavy.",
         "steps": 80,
-        "capability": { "kind": "none" },
         "whenToUse": [
           "Deep single-system debugging",
           "Complex bug isolation in one module/package",
@@ -280,7 +270,6 @@
         "costRatio": 20,
         "description": "Staff Architect: senior advisory. Architecture, security review, multi-system tradeoffs, migration strategy, RCA after ≥2 prior failures. No self-recon.",
         "steps": 120,
-        "capability": { "kind": "none" },
         "whenToUse": [
           "Architecture decisions",
           "Complex debugging after ≥2 prior failures",
@@ -297,7 +286,6 @@
         "costRatio": 1,
         "description": "Scout: read-only codebase reconnaissance. Parallel search, grep, glob, file reads, quick lookups. Never modifies files; routes edits back.",
         "steps": 30,
-        "capability": { "kind": "none" },
         "whenToUse": [
           "Codebase exploration and parallel search",
           "Locating files and code patterns (grep/glob/ast-grep)",
@@ -310,7 +298,6 @@
         "costRatio": 2,
         "description": "Patcher: surgical single-file edits from a complete spec. Simple fixes, config tweaks, localized refactoring. Escalates on cross-file scope growth.",
         "steps": 40,
-        "capability": { "kind": "none" },
         "whenToUse": [
           "Simple edits and small fixes within one file",
           "Config tweaks and parameter changes",
@@ -371,7 +358,6 @@
         "costRatio": 1,
         "description": "Scout: read-only codebase reconnaissance. Parallel search, grep, glob, file reads, quick lookups. Never modifies files; routes edits back.",
         "steps": 30,
-        "capability": { "kind": "none" },
         "whenToUse": [
           "Codebase exploration and parallel search",
           "Locating files and code patterns (grep/glob/ast-grep)",
@@ -403,7 +389,6 @@
         "costRatio": 5,
         "description": "Builder: standard implementation. Features, refactoring, tests, code review, build-fixes. Matches existing patterns; runs targeted verification only.",
         "steps": 50,
-        "capability": { "kind": "none" },
         "whenToUse": [
           "Feature implementation (multi-file allowed)",
           "Refactoring",

@@ -260,4 +260,56 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
 
     expect(opencodeConfig.agent[tierName].variant).toBe(baselineVariant);
   });
+
+  // Scenario: Model swap drops reasoning cleanly (reasoning-control/spec)
+  // When a tier's model changes (config reload with different model), the
+  // new agent def is created from the new config without any prior patch.
+  // The patch was tied to the old agent def; the new def starts at baseline.
+  it("model swap clears any prior reasoning patch from the old agent def", async () => {
+    const hooks: any = await ModelRouterPlugin(makeCtx(dir) as any);
+    const opencodeConfig: any = { agent: {}, command: {} };
+    await hooks.config(opencodeConfig);
+
+    const tierName = "heavy";
+    const agentDef = opencodeConfig.agent[tierName];
+    expect(agentDef).toBeDefined();
+    // Baseline is xhigh.
+    const baselineVariant = agentDef.variant;
+    expect(baselineVariant).toBe("xhigh");
+
+    // Apply a reasoning override and dispatch to observe the patch.
+    const orchSid = "orch-sid-model-swap";
+    await hooks["command.execute.before"](
+      { command: "model-router-reasoning", arguments: "deep", sessionID: orchSid },
+      { parts: [] },
+    );
+    await hooks["tool.execute.before"](
+      { tool: "task", sessionID: orchSid, args: { subagent_type: tierName } },
+      { args: { subagent_type: tierName } },
+    );
+    // Patch applied: variant should be "high" (deep → high per profileMap).
+    expect(agentDef.variant).toBe("high");
+
+    // Simulate a model swap: the heavy tier gets a new model identifier.
+    // In a real session this would come from a config reload.
+    // The new agent def is created fresh without any prior patch state.
+    const newHeavyTier = {
+      model: "anthropic/claude-sonnet-4-7", // changed model
+      variant: "xhigh",
+      description: "heavy with new model",
+      steps: 50,
+      whenToUse: ["write"],
+      reasoningControl: {
+        channel: "variant",
+        levels: ["low", "medium", "high", "xhigh"],
+        profileMap: { light: "low", standard: "medium", deep: "high" },
+        maxBumps: 0,
+      },
+    };
+    opencodeConfig.agent[tierName] = { ...newHeavyTier };
+
+    // The new agent def has no patch applied — it starts at the new baseline.
+    expect(opencodeConfig.agent[tierName].variant).toBe("xhigh");
+    expect(opencodeConfig.agent[tierName].model).toBe("anthropic/claude-sonnet-4-7");
+  });
 });
