@@ -64,32 +64,32 @@ flip + validator rewrite + golden snapshot must land together).
 - [x] 1.3 RED+GREEN `reasoning-translate.test.ts` — bridge lossless, index clamp at bounds, baseline restore; `translate.ts` adds `resolveControlPatch`/`patchAtIndex`; biome conformance commit — commits `cc367ef` + `f7ad874`
 - [x] 1.4 RED+GREEN `reasoning-policy.test.ts` — 20 scenarios for `resolveReasoningProfile` (static/manual/adaptive/unknown-mode, unregistered override, both paths D-1); `policy.ts` adds `resolveReasoningProfile(policy, sessionOverride, signals)` tier-agnostic helper — commit `510522d`
 - [x] 1.5 GREEN `adaptive.ts` — `AdaptiveDecisionV2`, `selectAdaptiveLevelV2` (profile ID consequences, same decision order as v1) — commit `510522d`
-- [x] tool-guards wiring — `applyOrchestratorReasoningPatch` calls `resolveReasoningProfile` alongside legacy `resolveReasoningOverride` (expand phase); guarded on `"profiles" in v2Policy` to avoid v1 interference — commit `510522d`
+- [x] 1.6 tool-guards wiring — `applyOrchestratorReasoningPatch` calls `resolveReasoningProfile` alongside legacy `resolveReasoningOverride` (expand phase); guarded on `"profiles" in v2Policy` to avoid v1 interference — commit `510522d`
 
 ## Phase 2 — PR #28 — Expand part 2 (consolidated; size exception required)
 
-- [ ] 2.1 RED+GREEN `adaptive-selector.test.ts` — full rewrite to assert profile-ID consequences (overlaps with WU-1's partial `selectAdaptiveLevelV2`); commit before WU-5 lands so D-3 matrix can reference resolved profile IDs.
-- [ ] 2.2 RED+GREEN `ladder.test.ts` `it.each` D-3 matrix (`levels.len 1..5 × maxBumps 0..len−1 × bumpsThisTier × levelIndex × cause`), room formula `min(maxBumps, len−1−startIndex)`, cap/top exhaustion → direct escalate, retryable never bumps. GREEN: `src/escalate/ladder.ts` adds `tierMaxBumps`, `canBumpReasoning(state, verdict)` (**drops unused policy param — flag in PR body**), `bumpExhausted`, branch 5.5.
-- [ ] 2.3 RED+GREEN `plugin-delegate.test.ts` — enterTier seeding, bump→bump→escalate, static-tier patch gate, baseline restore. GREEN: `src/plugin/delegate.ts` re-resolves via D-1 helper per tier entry; drops `inferCapability` imports.
-- [ ] 2.4 RED+GREEN `test/integration/reasoning-runtime.test.ts` — profile→patch seam per channel at live agent def. GREEN: `src/plugin/hooks/tool-guards.ts` call-sites → `resolveReasoningProfile` + `resolveControlPatch`, logs `reasoning.override_unknown_profile`. Drops the legacy `resolveReasoningOverride` call path.
-- [ ] 2.5 RED+GREEN `router-commands.test.ts` + `router-agents.test.ts` — registry-driven vocabulary, unregistered arg rejected, `off` clears; patch/restore parity. GREEN: `builders.ts` (registry vocab, `describeControl`), `dispatch.ts` (registry-only override set).
+- [x] 2.1 RED+GREEN `adaptive-selector.test.ts` — full rewrite to assert profile-ID consequences (overlaps with WU-1's partial `selectAdaptiveLevelV2`); commit before WU-5 lands so D-3 matrix can reference resolved profile IDs.
+- [x] 2.2 RED+GREEN `ladder.test.ts` `it.each` D-3 matrix (`levels.len 1..5 × maxBumps 0..len−1 × bumpsThisTier × levelIndex × cause`), room formula `min(maxBumps, len−1−startIndex)`, cap/top exhaustion → direct escalate, retryable never bumps. GREEN: `src/escalate/ladder.ts` adds `tierMaxBumps`, `canBumpReasoning(state, verdict)` (**drops unused policy param — flag in PR body**), `bumpExhausted`, branch 5.5.
+- [x] 2.3 RED+GREEN `plugin-delegate.test.ts` — enterTier seeding, bump→bump→escalate, static-tier patch gate, baseline restore. GREEN: `src/plugin/delegate.ts` re-resolves via D-1 helper per tier entry; drops `inferCapability` imports.
+- [x] 2.4 RED+GREEN `test/integration/reasoning-runtime.test.ts` — profile→patch seam per channel at live agent def. GREEN: `src/plugin/hooks/tool-guards.ts` call-sites → `resolveReasoningProfile` + `resolveControlPatch`, logs `reasoning.override_unknown_profile`. Drops the legacy `resolveReasoningOverride` call path.
+- [x] 2.5 RED+GREEN `router-commands.test.ts` + `router-agents.test.ts` — registry-driven vocabulary, unregistered arg rejected, `off` clears; patch/restore parity. GREEN: `builders.ts` (registry vocab, `describeControl`), `dispatch.ts` (registry-only override set).
 
 GREEN throughout: all untouched suites (`config-*`, `ladder-wiring`, `protocol`, `tiers-assembly`, …) stay green on this PR.
 
 ## Phase 3 — PR #29 — R-3 atomic flip (single commit, do not split)
 
-- [ ] 3.1 RED: rewrite reasoning sections of `test/unit/config-validate-sections.test.ts` — all fail-fast invariants (profileMap ≠ registry, non-ascending budgets, maxBumps range, missing default, legacy-key errors with migration-doc pointer, invalid reload atomic).
-- [ ] 3.2 GREEN: `src/router/config-validate.ts` v2 registry/reference/control validators.
-- [ ] 3.3 `config/tiers/base.json`: remove `enforcement.escalate.reasoningEscalation`; v2 `reasoningPolicy` per data table.
-- [ ] 3.4 `config/tiers/presets.json`: per-tier `reasoningControl` per data table, ALL `maxBumps:0`, delete `capability` blocks.
-- [ ] 3.5 `scripts/build-tiers-config.ts` MERGE_PLAN **comment-only** update (whole-key merge verified, `build-tiers-config.ts:119-148`).
-- [ ] 3.6 Regenerate `tiers.json`; update `tiers-assembly.test.ts`, `router-config.test.ts`, `protocol.golden.test.ts.snap` via `vitest -u`; diff review asserts ONLY v2 reasoning shape; jq-check SC-7.
+- [x] 3.1 RED: rewrite reasoning sections of `test/unit/config-validate-sections.test.ts` — all fail-fast invariants (profileMap ≠ registry, non-ascending budgets, maxBumps range, missing default, legacy-key errors with migration-doc pointer, invalid reload atomic).
+- [x] 3.2 GREEN: `src/router/config-validate.ts` v2 registry/reference/control validators.
+- [x] 3.3 `config/tiers/base.json`: remove `enforcement.escalate.reasoningEscalation`; v2 `reasoningPolicy` per data table.
+- [x] 3.4 `config/tiers/presets.json`: per-tier `reasoningControl` per data table, ALL `maxBumps:0`, delete `capability` blocks.
+- [x] 3.5 `scripts/build-tiers-config.ts` MERGE_PLAN **comment-only** update (whole-key merge verified, `build-tiers-config.ts:119-148`).
+- [x] 3.6 Regenerate `tiers.json`; update `tiers-assembly.test.ts`, `router-config.test.ts`, `protocol.golden.test.ts.snap` via `vitest -u`; diff review asserts ONLY v2 reasoning shape; jq-check SC-7.
 
 ## Phase 4 — PR #30 — Contract + gate (consolidated)
 
-- [ ] 4.1 Delete legacy identifiers: `ReasoningLevel`, `ReasoningCapability`, `POSITIONAL_VARIANTS`, `NAMED_VARIANTS`, `inferCapability`, `translateLevel`, `levelIndexForVariant`, `capabilityLadderLength`, `DISCRETE_RANK`, old `resolveReasoningOverride`, `REASONING_LEVELS`, `detectCollapse`, `ReasoningEscalationConfig`, `EscalatePolicy.reasoningEscalation` + `buildEscalatePolicy` carry.
-- [ ] 4.2 Create `test/unit/no-hardcoded-reasoning-vocabulary.test.ts` (banned identifiers + `"minimal"`/`"elevated"` literals in `src/reasoning/`+`src/router/`); MUST pass first run (R-4).
-- [ ] 4.3 Update reasoning sections of `docs/REASONING.md`, `docs/CONFIG_REFERENCE.md` (migration note — validator error target), `docs/ESCALATION.md`, `README.md`.
+- [x] 4.1 Delete legacy identifiers: `ReasoningLevel`, `ReasoningCapability`, `POSITIONAL_VARIANTS`, `NAMED_VARIANTS`, `inferCapability`, `translateLevel`, `levelIndexForVariant`, `capabilityLadderLength`, `DISCRETE_RANK`, old `resolveReasoningOverride`, `REASONING_LEVELS`, `detectCollapse`, `ReasoningEscalationConfig`, `EscalatePolicy.reasoningEscalation` + `buildEscalatePolicy` carry.
+- [x] 4.2 Create `test/unit/no-hardcoded-reasoning-vocabulary.test.ts` (banned identifiers + `"minimal"`/`"elevated"` literals in `src/reasoning/`+`src/router/`); MUST pass first run (R-4).
+- [x] 4.3 Update reasoning sections of `docs/REASONING.md`, `docs/CONFIG_REFERENCE.md` (migration note — validator error target), `docs/ESCALATION.md`, `README.md`.
 
 ## Process rules for the fresh session
 
@@ -97,3 +97,14 @@ GREEN throughout: all untouched suites (`config-*`, `ladder-wiring`, `protocol`,
 - PR #28 + #29 carry size exceptions — apply maintainer-approved `size:exception` label on those PRs at open time, do not ask again.
 - Runtime ledger: post-reset, `sdd-attempt acquire` returns proceed for new WUs. WU-3's first passing settle in the chain must carry `--remediates-evidence-revision sha256:0000000000000000000000000000000000000000000000000000000000000000` to release the WU-2 incident binding (already noted in engram).
 - All work continues on the existing branch `advisor/041-user-owned-reasoning-profiles` on worktree `/tmp/opencode/smart-router-041` from base `0ea3822`. Do not create new branches.
+
+---
+
+## Archive-Time Stale Checkbox Reconciliation
+
+**Reason**: The tasks.md checkbox state (6/20 checked) is stale. The disk state reflects the end of PR #27, before the remaining 14 tasks were completed in the canonical integration worktree and merged to master at commit `64834fb`. The orchestrator has provided explicit final-state authority:
+
+1. Prior `sdd-verify` report for this change recorded **20/20 tasks, 18/18 requirements, 37/37 scenarios complete**, pass_with_warnings.
+2. Post-merge at master commit `64834fb`: **2534/2534 tests passing**, typecheck clean, coverage gate passed, Biome clean.
+
+The on-disk tasks.md was never updated after PR #27 because the remaining work was completed in a separate worktree and merged. Per the orchestrator's explicit instruction, all 20 tasks are marked complete in this reconciled artifact before archiving.
