@@ -267,6 +267,27 @@ describe("tiers assembly — runtime contract", () => {
     expect(reasoningEscalation.enabled).toBe(true);
     expect(reasoningEscalation.maxLevelBumpsPerTier).toBe(2);
   });
+
+  it("ships the approved opaque registry and exact profile maps", () => {
+    const parsed = JSON.parse(readFileSync(ASSEMBLED_PATH, "utf-8")) as Record<string, any>;
+    const policy = parsed.reasoningPolicy;
+    expect(policy.profiles).toEqual(["light", "standard", "deep"]);
+    expect(policy.defaultProfile).toBe("standard");
+
+    for (const preset of Object.values(parsed.presets) as Record<string, any>[]) {
+      for (const tier of Object.values(preset)) {
+        if (!tier.reasoningControl) continue;
+        expect(Object.keys(tier.reasoningControl.profileMap)).toEqual([
+          "light",
+          "standard",
+          "deep",
+        ]);
+        for (const native of Object.values(tier.reasoningControl.profileMap)) {
+          expect(tier.reasoningControl.levels).toContain(native);
+        }
+      }
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

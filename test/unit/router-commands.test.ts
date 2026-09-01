@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PluginContext } from "../../src/plugin/context";
 import { createReasoningStore } from "../../src/reasoning/store";
+import { resolveControlPatch } from "../../src/reasoning/translate";
 import {
   buildBudgetOutput,
   buildPresetOutput,
@@ -332,6 +333,31 @@ const makeReasoningCtx = (cfg: RouterConfig, _sid = "sess-test"): PluginContext 
   }) as PluginContext;
 
 describe("buildReasoningOutput", () => {
+  it("uses registered opaque IDs without interpreting their names", async () => {
+    const cfg = makeConfig({
+      reasoningPolicy: { mode: "manual", profiles: ["intent-a", "intent-b"] },
+    });
+    cfg.presets.anthropic.medium = {
+      model: "anthropic/claude-sonnet-4-6",
+      description: "Sonnet",
+      steps: 50,
+      whenToUse: ["impl"],
+      reasoningControl: {
+        channel: "variant",
+        levels: ["native-low", "native-high"],
+        profileMap: { "intent-a": "native-low", "intent-b": "native-high" },
+        maxBumps: 0,
+      },
+    };
+    const out = await buildReasoningOutput(cfg, "intent-b", makeReasoningCtx(cfg), "sess-1");
+    expect(out).toContain("Reasoning override set to **intent-b**");
+    expect(out).toContain('patch = {"variant":"native-high"}');
+    expect(resolveControlPatch(cfg.presets.anthropic.medium.reasoningControl, "intent-b")).toEqual({
+      native: "native-high",
+      levelIndex: 1,
+    });
+  });
+
   it("describes every active tier when called with no args", async () => {
     const cfg = makeConfig({
       reasoningPolicy: { mode: "manual", surfaceLimits: false },

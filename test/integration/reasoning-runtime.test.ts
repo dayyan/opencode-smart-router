@@ -103,7 +103,7 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
               reasoningControl: {
                 channel: "variant",
                 levels: ["low", "medium", "high", "xhigh"],
-                profileMap: { minimal: "low", normal: "medium", elevated: "high", max: "xhigh" },
+                profileMap: { light: "low", standard: "medium", deep: "high" },
                 maxBumps: 0,
               },
             },
@@ -111,8 +111,8 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
         },
         reasoningPolicy: {
           mode: "manual",
-          profiles: ["minimal", "normal", "elevated", "max"],
-          defaultProfile: "normal",
+          profiles: ["light", "standard", "deep"],
+          defaultProfile: "standard",
         },
       }),
       "utf-8",
@@ -177,10 +177,10 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
     const orchSid = "orch-sid-plan-012";
     const cmdOutput: { parts: any[] } = { parts: [] };
     await hooks["command.execute.before"](
-      { command: "model-router-reasoning", arguments: "elevated", sessionID: orchSid },
+      { command: "model-router-reasoning", arguments: "deep", sessionID: orchSid },
       cmdOutput,
     );
-    expect(cmdOutput.parts[0].text).toContain("Reasoning override set to **elevated**");
+    expect(cmdOutput.parts[0].text).toContain("Reasoning override set to **deep**");
 
     // Now simulate the orchestrator task dispatch.
     await hooks["tool.execute.before"](
@@ -225,7 +225,7 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
               reasoningControl: {
                 channel: "variant",
                 levels: ["low", "medium", "high", "xhigh"],
-                profileMap: { minimal: "low", normal: "medium", elevated: "high", max: "xhigh" },
+                profileMap: { light: "low", standard: "medium", deep: "high" },
                 maxBumps: 0,
               },
             },
@@ -247,10 +247,10 @@ describe("Reasoning runtime wiring — operator-visible flow (plan 012)", () => 
     const orchSid = "orch-sid-static";
     const cmdOutput: { parts: any[] } = { parts: [] };
     await hooks["command.execute.before"](
-      { command: "model-router-reasoning", arguments: "elevated", sessionID: orchSid },
+      { command: "model-router-reasoning", arguments: "deep", sessionID: orchSid },
       cmdOutput,
     );
-    expect(cmdOutput.parts[0].text).toContain("Reasoning override set to **elevated**");
+    expect(cmdOutput.parts[0].text).toContain("Reasoning override set to **deep**");
 
     // Dispatch a task — static mode must leave the agent definition untouched.
     await hooks["tool.execute.before"](

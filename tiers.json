@@ -65,10 +65,9 @@
             "high"
           ],
           "profileMap": {
-            "minimal": "low",
-            "normal": "medium",
-            "elevated": "high",
-            "max": "high"
+            "light": "low",
+            "standard": "medium",
+            "deep": "high"
           },
           "maxBumps": 0
         },
@@ -92,10 +91,9 @@
             "max"
           ],
           "profileMap": {
-            "minimal": "baseline",
-            "normal": "baseline",
-            "elevated": "max",
-            "max": "max"
+            "light": "baseline",
+            "standard": "baseline",
+            "deep": "max"
           },
           "maxBumps": 0
         },
@@ -121,10 +119,9 @@
             "max"
           ],
           "profileMap": {
-            "minimal": "baseline",
-            "normal": "baseline",
-            "elevated": "max",
-            "max": "max"
+            "light": "baseline",
+            "standard": "baseline",
+            "deep": "max"
           },
           "maxBumps": 0
         },
@@ -148,10 +145,9 @@
             "max"
           ],
           "profileMap": {
-            "minimal": "baseline",
-            "normal": "baseline",
-            "elevated": "max",
-            "max": "max"
+            "light": "baseline",
+            "standard": "baseline",
+            "deep": "max"
           },
           "maxBumps": 0
         },
@@ -194,10 +190,9 @@
             "high"
           ],
           "profileMap": {
-            "minimal": "low",
-            "normal": "medium",
-            "elevated": "high",
-            "max": "high"
+            "light": "low",
+            "standard": "medium",
+            "deep": "high"
           },
           "maxBumps": 0
         },
@@ -222,10 +217,9 @@
             "high"
           ],
           "profileMap": {
-            "minimal": "low",
-            "normal": "medium",
-            "elevated": "high",
-            "max": "high"
+            "light": "low",
+            "standard": "medium",
+            "deep": "high"
           },
           "maxBumps": 0
         },
@@ -252,10 +246,9 @@
             "high"
           ],
           "profileMap": {
-            "minimal": "low",
-            "normal": "medium",
-            "elevated": "high",
-            "max": "high"
+            "light": "low",
+            "standard": "medium",
+            "deep": "high"
           },
           "maxBumps": 0
         },
@@ -281,10 +274,9 @@
             "xhigh"
           ],
           "profileMap": {
-            "minimal": "low",
-            "normal": "medium",
-            "elevated": "high",
-            "max": "xhigh"
+            "light": "low",
+            "standard": "medium",
+            "deep": "xhigh"
           },
           "maxBumps": 0
         },
@@ -374,10 +366,9 @@
             "thinking"
           ],
           "profileMap": {
-            "minimal": "baseline",
-            "normal": "baseline",
-            "elevated": "thinking",
-            "max": "thinking"
+            "light": "baseline",
+            "standard": "baseline",
+            "deep": "thinking"
           },
           "maxBumps": 0
         },
@@ -517,10 +508,9 @@
             "high"
           ],
           "profileMap": {
-            "minimal": "low",
-            "normal": "medium",
-            "elevated": "high",
-            "max": "high"
+            "light": "low",
+            "standard": "medium",
+            "deep": "high"
           },
           "maxBumps": 0
         },
@@ -547,10 +537,9 @@
             "high"
           ],
           "profileMap": {
-            "minimal": "low",
-            "normal": "medium",
-            "elevated": "high",
-            "max": "high"
+            "light": "low",
+            "standard": "medium",
+            "deep": "high"
           },
           "maxBumps": 0
         },
@@ -574,10 +563,9 @@
             "max"
           ],
           "profileMap": {
-            "minimal": "baseline",
-            "normal": "baseline",
-            "elevated": "max",
-            "max": "max"
+            "light": "baseline",
+            "standard": "baseline",
+            "deep": "max"
           },
           "maxBumps": 0
         },
@@ -625,10 +613,9 @@
             "max"
           ],
           "profileMap": {
-            "minimal": "low",
-            "normal": "medium",
-            "elevated": "high",
-            "max": "max"
+            "light": "low",
+            "standard": "medium",
+            "deep": "max"
           },
           "maxBumps": 0
         },
@@ -668,10 +655,9 @@
             "thinking"
           ],
           "profileMap": {
-            "minimal": "none",
-            "normal": "none",
-            "elevated": "thinking",
-            "max": "thinking"
+            "light": "none",
+            "standard": "none",
+            "deep": "thinking"
           },
           "maxBumps": 0
         },
@@ -700,10 +686,9 @@
             "xhigh"
           ],
           "profileMap": {
-            "minimal": "low",
-            "normal": "medium",
-            "elevated": "high",
-            "max": "xhigh"
+            "light": "low",
+            "standard": "medium",
+            "deep": "high"
           },
           "maxBumps": 0
         },
@@ -850,12 +835,11 @@
   "reasoningPolicy": {
     "mode": "manual",
     "profiles": [
-      "minimal",
-      "normal",
-      "elevated",
-      "max"
+      "light",
+      "standard",
+      "deep"
     ],
-    "defaultProfile": "normal",
+    "defaultProfile": "standard",
     "surfaceLimits": false,
     "adaptive": {
       "trivialProfile": null,
@@ -869,7 +853,7 @@
             "bump version",
             "typo"
           ],
-          "profile": "minimal",
+          "profile": "light",
           "excludeKeywords": [
             "refactor",
             "architect",
@@ -885,7 +869,7 @@
             "architect",
             "data migration"
           ],
-          "profile": "max"
+          "profile": "deep"
         },
         {
           "keywords": [
@@ -903,7 +887,7 @@
             "memory leak",
             "bottleneck"
           ],
-          "profile": "elevated"
+          "profile": "deep"
         }
       ],
       "surfaceDecision": false
