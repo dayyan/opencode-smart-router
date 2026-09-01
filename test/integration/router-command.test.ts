@@ -99,4 +99,26 @@ describe("router-command integration", () => {
     await hooks["command.execute.before"]({ command: "router", arguments: "" }, out);
     expect(out.parts[0].text).toContain("Enforcement:");
   });
+
+  it("/bypass toggles bypass state", async () => {
+    const out = { parts: [] as any[] };
+    await hooks["command.execute.before"]({ command: "bypass", arguments: "" }, out);
+    expect(out.parts[0].text).toContain("Bypass: ON");
+  });
+
+  it("/bypass off disables bypass", async () => {
+    await hooks["command.execute.before"](
+      { command: "bypass", arguments: "on" },
+      { parts: [] as any[] },
+    );
+    const out = { parts: [] as any[] };
+    await hooks["command.execute.before"]({ command: "bypass", arguments: "off" }, out);
+    expect(out.parts[0].text).toContain("Bypass: OFF");
+  });
+
+  it("/budget lists configured modes", async () => {
+    const out = { parts: [] as any[] };
+    await hooks["command.execute.before"]({ command: "budget", arguments: "" }, out);
+    expect(out.parts[0].text).toMatch(/Routing Modes|No modes configured/);
+  });
 });

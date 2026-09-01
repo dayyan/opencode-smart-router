@@ -335,7 +335,7 @@ const makeReasoningCtx = (cfg: RouterConfig, _sid = "sess-test"): PluginContext 
 describe("buildReasoningOutput", () => {
   it("uses registered opaque IDs without interpreting their names", async () => {
     const cfg = makeConfig({
-      reasoningPolicy: { mode: "manual", profiles: ["intent-a", "intent-b"] },
+      reasoningPolicy: { mode: "manual", profiles: ["intent-a", "intent-b"] } as any,
     });
     cfg.presets.anthropic.medium = {
       model: "anthropic/claude-sonnet-4-6",
@@ -397,6 +397,33 @@ describe("buildReasoningOutput", () => {
     expect(out).toContain("ultra");
     expect(out).toContain("minimal");
     expect(out).toContain("max");
+  });
+
+  // Legacy v1 path: when reasoningPolicy.profiles is absent, the command falls
+  // back to the bundled level vocabulary and emits per-tier options patches.
+  it("legacy mode renders options-style per-tier behaviour", async () => {
+    const cfg = makeConfig({
+      reasoningPolicy: { mode: "manual", profiles: undefined } as any,
+    });
+    cfg.presets.anthropic.medium = {
+      model: "openai/gpt-5.4-mini-fast",
+      description: "Mini",
+      steps: 50,
+      whenToUse: ["impl"],
+      reasoning: { effort: "high" },
+    } as TierConfig;
+    const out = await buildReasoningOutput(cfg, "elevated", makeReasoningCtx(cfg), "sess-1");
+    expect(out).toContain("Reasoning override set to **elevated**");
+    expect(out).toContain("Per-tier behaviour:");
+    expect(out).toContain("options =");
+    expect(out).toContain("reasoning_effort");
+  });
+
+  it("returns unknown preset when the resolved preset does not exist", async () => {
+    const cfg = makeConfig();
+    const out = await buildPresetOutput(cfg, "openai", { preset: "nonexistent" });
+    expect(out).toContain("Unknown preset");
+    expect(out).toContain("openai");
   });
 
   it("static mode still writes the override; the runtime decides whether to apply it", async () => {
