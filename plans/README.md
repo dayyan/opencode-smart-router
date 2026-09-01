@@ -374,3 +374,39 @@ spike, not a bug), incomplete secret scrubbing (no proven exfiltration sink).
   a compat-matrix check against the 1.0.0 exports.
 - **`TIERS_OUTPUT_PATH` absolute-path escape + `buildSpecifier`
   unvalidated input**: S-effort defensive hardening, LOW real-world risk.
+
+### Out-of-cycle plans (2026-08-31, commit `0ea3822` — improve `plan` variant)
+
+> Plans 042 and 043 were authored via the `improve plan` variant, not an
+> audit cycle. They target the **machine-global OpenCode SDD adapter** at
+> `~/.config/opencode/plugins/sdd-task-result-artifacts.ts` — NOT this
+> repo's source. Trigger: recurring `sdd_task_result_malformed` transport
+> false-positives that latched sessions and destroyed multi-hour SDD runs
+> (Plan 041's WU-2 wedge and the WU-3..8 dispatch failure). Design
+> provenance: `sdd-artifacts-plugin-fix.md` (Windows porting record,
+> root of this repo). Because the edit target lives outside any git repo,
+> the in-plan drift check pins the current file by SHA-256
+> (`459aaf15875f…`) instead of a commit SHA. The original broken generation
+> (`bfd291ff…`, 5,890 bytes) could not be recovered; the fixed baseline is
+> the rollback anchor.
+
+| Plan | Title | Priority | Effort | Risk | Depends on | Status |
+|------|-------|----------|--------|------|------------|--------|
+| 042  | Rewrite the SDD task-result plugin — tolerant envelope, reformed latch, recovery evidence | P1 | M | MED | — | DONE* |
+| 043  | Maintain the SDD plugin fix — git baseline, drift verifier, upstream-convergence runbook | P1 | S | LOW | 042 | DONE* |
+
+**Dependency / ordering:**
+
+- **043 requires 042** — the baseline must capture the FIXED state; running
+  043 first would anchor the broken generation as "known-good".
+- After 042 completes, OpenCode must be **restarted** before any SDD
+  dispatch (plugins load at startup); the current session's latch dies with
+  the restart.
+- Neither plan touches the wedged `sdd-attempt` ledger (separate concern,
+   handled by the option-C bypass documented in engram
+   `architecture/sdd-malformed-reset-pattern`).
+
+`*` Verified by 17 passing contract tests and the Plan 043 verifier. The
+original backup was overwritten during the disconnected executor recovery and
+could not be recovered from the installed package; the local Git baseline is
+the available rollback anchor. Restart OpenCode before the next SDD dispatch.
