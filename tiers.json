@@ -538,7 +538,7 @@
     },
     "multi-provider": {
       "fast": {
-        "model": "opencode-go/qwen-3.8-flash",
+        "model": "opencode-go/qwen3.8-flash",
         "costRatio": 1,
         "description": "Scout: read-only codebase reconnaissance. Parallel search, grep, glob, file reads, quick lookups. Never modifies files; routes edits back.",
         "steps": 30,
