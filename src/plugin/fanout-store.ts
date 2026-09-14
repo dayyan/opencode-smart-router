@@ -13,15 +13,23 @@ import type { FanoutConfig } from "../router/config.types";
 
 /** Outcome kinds recorded by the store.
  *
- *  Qualifying failures (trip the breaker): `timed_out`, `failed` (cleanup abort failed)
- *  Non-qualifying (reset streak in closed state): `completed`, `failed` (non-retryable
- *    prompt error), `cancelled`, `rejected`
+ *  Qualifying failures (trip the breaker; increment streak):
+ *    `timed_out`      — worker exceeded workerTimeoutMs
+ *    `abort_failed`   — cleanup session.abort exceeded 10s timeout (cleanup abort failure)
  *
- *  The two `failed` senses are distinguished by call site:
- *    - `recordOutcome("failed")` after a prompt error → non-qualifying, resets streak
- *    - `recordOutcome("failed")` after a cleanup abort failure → qualifying, trips breaker
+ *  Non-qualifying (reset streak to 0 in closed state):
+ *    `completed`  — all workers succeeded
+ *    `failed`     — non-retryable prompt error (session.prompt threw)
+ *    `cancelled`  — caller signal fired (session.create/prompt AbortError)
+ *    `rejected`   — per-item policy rejection
  */
-export type OutcomeKind = "completed" | "failed" | "timed_out" | "cancelled" | "rejected";
+export type OutcomeKind =
+  | "completed"
+  | "failed"
+  | "timed_out"
+  | "cancelled"
+  | "rejected"
+  | "abort_failed";
 
 /** Result of a `tryAcquire` call. */
 export interface AcquireResult {
@@ -74,8 +82,8 @@ export interface FanoutStore {
    * Record the outcome of a worker or batch.
    *
    * Qualifying failures (increment streak; trip breaker at threshold):
-   *   `timed_out` — worker exceeded workerTimeoutMs
-   *   `failed`    — cleanup session.abort failed (10s abort timeout)
+   *   `timed_out`    — worker exceeded workerTimeoutMs
+   *   `abort_failed` — cleanup session.abort exceeded 10s timeout
    *
    * Non-qualifying (reset streak to 0 in closed state):
    *   `completed`  — all workers succeeded
@@ -85,7 +93,8 @@ export interface FanoutStore {
    *
    * Special transitions:
    *   - `completed` in `half_open` → transitions breaker to `closed`
-   *   - `timed_out` or `failed` (qualifying) in `half_open` → re-opens breaker
+   *   - `timed_out` or `abort_failed` in `half_open` → re-opens breaker
+   *   - `failed` in `half_open` → closes breaker (probe succeeded despite prompt error)
    */
   recordOutcome(kind: OutcomeKind): void;
 
@@ -126,7 +135,7 @@ export const createFanoutStore = (): FanoutStore => {
 
   const configure: FanoutStore["configure"] = (cfg) => {
     _maxConcurrentGlobal = cfg.maxConcurrentGlobal ?? 6;
-    _maxConcurrentPerTier = { ...cfg.maxConcurrentPerTier ?? { fast: 4, light: 2, medium: 1 } };
+    _maxConcurrentPerTier = { ...(cfg.maxConcurrentPerTier ?? { fast: 4, light: 2, medium: 1 }) };
     _failureThreshold = cfg.breaker?.failureThreshold ?? 3;
     _cooldownMs = cfg.breaker?.cooldownMs ?? 60_000;
   };
@@ -203,7 +212,7 @@ export const createFanoutStore = (): FanoutStore => {
 
   const recordOutcome: FanoutStore["recordOutcome"] = (kind) => {
     // Non-qualifying outcomes reset streak in closed state.
-    // These do NOT increment the failure streak.
+    // `completed` in half_open also closes the breaker.
     if (kind === "completed" || kind === "cancelled" || kind === "rejected") {
       if (_breakerState === "half_open") {
         // Special case: completed in half_open closes the breaker (probe succeeded)
@@ -218,33 +227,23 @@ export const createFanoutStore = (): FanoutStore => {
       return;
     }
 
+    // `failed` = non-retryable prompt error (non-qualifying per D-3).
+    // Resets streak in closed; closes breaker in half_open (probe succeeded).
     if (kind === "failed") {
-      // `failed` is ambiguous in the spec — it covers both:
-      //   (a) non-retryable prompt error (non-qualifying, resets streak in closed)
-      //   (b) cleanup abort failure (qualifying, increments streak / trips breaker)
-      // We treat `failed` as qualifying by default (increments streak) because
-      // the primary use of recordOutcome("failed") in fanout.ts is for cleanup
-      // abort failures. Non-retryable prompt errors are handled separately
-      // via recordOutcome("cancelled") to avoid incorrectly tripping the breaker.
-      _consecutiveFailures += 1;
-
       if (_breakerState === "half_open") {
-        // Probe failed — re-open with a new openedAt timestamp
-        _breakerState = "open";
-        _openedAt = Date.now();
-        _consecutiveFailures = 1; // reset streak; the re-open counts as 1
+        // Probe succeeded despite a prompt error — close the breaker
+        _breakerState = "closed";
+        _consecutiveFailures = 0;
+        _openedAt = null;
         return;
       }
-
-      // closed → open transition
-      if (_breakerState === "closed" && _consecutiveFailures >= _failureThreshold) {
-        _breakerState = "open";
-        _openedAt = Date.now();
-      }
+      // In closed state: reset streak to 0
+      _consecutiveFailures = 0;
       return;
     }
 
-    // Qualifying failure: timed_out (worker exceeded workerTimeoutMs)
+    // Qualifying failures: timed_out (worker timeout) and abort_failed (cleanup abort
+    // timeout). Both increment the streak and trip the breaker at threshold.
     _consecutiveFailures += 1;
 
     if (_breakerState === "half_open") {

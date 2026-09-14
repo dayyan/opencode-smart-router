@@ -51,6 +51,7 @@ const cleanupWorkerSession = async (
   ctx: PluginContext,
   workerSid: string,
   workerSucceeded: boolean,
+  abortFailedWorkers: Set<string>,
 ): Promise<void> => {
   try {
     ctx.changedFileStore.clear(workerSid);
@@ -94,7 +95,9 @@ const cleanupWorkerSession = async (
         "fanout session.abort",
       );
     } catch (err) {
-      // 10s abort timeout — cleanup failure, feeds breaker as qualifying failure
+      // 10s abort timeout exceeded — cleanup abort failure.
+      // This is a qualifying failure: trips the breaker.
+      abortFailedWorkers.add(workerSid);
       log.warn({
         event: "fanout.abort_failed",
         sid: workerSid,
@@ -236,7 +239,12 @@ export const executeFanout = async (
 
   // --- Batch-level cap ---
   if (args.items.length > effectiveCfg.maxWorkersPerBatch) {
-    log.warn({ event: "fanout.batch_rejected", reason: "batch_size_exceeded", items: args.items.length, maxWorkersPerBatch: effectiveCfg.maxWorkersPerBatch });
+    log.warn({
+      event: "fanout.batch_rejected",
+      reason: "batch_size_exceeded",
+      items: args.items.length,
+      maxWorkersPerBatch: effectiveCfg.maxWorkersPerBatch,
+    });
     return formatRejectedAggregate(
       `items.length ${args.items.length} > maxWorkersPerBatch ${effectiveCfg.maxWorkersPerBatch}`,
     );
@@ -306,6 +314,9 @@ export const executeFanout = async (
   }
 
   // --- Build per-worker promises ---
+  // Track cleanup abort failures (10s abort timeout exceeded) for batch-level recording.
+  // abortFailedWorkers is populated by cleanupWorkerSession before the worker promise resolves.
+  const abortFailedWorkers = new Set<string>();
   const workerPromises = itemResults.map(async (result, idx): Promise<FanoutItemResult> => {
     // Per-item policy rejection (siblings proceed)
     if (result.policyRejected) {
@@ -462,7 +473,7 @@ export const executeFanout = async (
         }
       } finally {
         // 6. Cleanup: abort on failure/timeout, preserve on success
-        await cleanupWorkerSession(ctx, workerSid, workerSucceeded);
+        await cleanupWorkerSession(ctx, workerSid, workerSucceeded, abortFailedWorkers);
       }
     } finally {
       // 7. ALWAYS release fanout slot (both success and failure paths)
@@ -525,12 +536,16 @@ export const executeFanout = async (
   // --- Record batch outcome for breaker (R-4: D-3 qualification) ---
   // Only qualifying failures increment the streak; non-qualifying reset it.
   // Call recordOutcome ONCE per batch with the worst outcome.
+  // Priority: abort_failed (most severe) > timed_out > failed (non-qualifying) > cancelled > rejected > completed
   const hasTimedOut = items.some((r) => r.status === "timed_out");
   const hasFailed = items.some((r) => r.status === "failed"); // non-retryable prompt error
   const hasCancelled = items.some((r) => r.status === "cancelled");
   const hasRejected = items.some((r) => r.status === "rejected");
 
-  if (hasTimedOut) {
+  if (abortFailedWorkers.size > 0) {
+    // Qualifying: cleanup abort timeout exceeded (most severe — cleanup itself failed)
+    ctx.fanoutStore.recordOutcome("abort_failed");
+  } else if (hasTimedOut) {
     // Qualifying: worker exceeded workerTimeoutMs
     ctx.fanoutStore.recordOutcome("timed_out");
   } else if (hasFailed) {
@@ -552,6 +567,7 @@ export const executeFanout = async (
   const timedOutCount = items.filter((r) => r.status === "timed_out").length;
   const cancelledCount = items.filter((r) => r.status === "cancelled").length;
   const rejectedCount = items.filter((r) => r.status === "rejected").length;
+  const abortFailedCount = abortFailedWorkers.size;
   log.info({
     event: "fanout.batch_completed",
     items: items.length,
@@ -560,6 +576,7 @@ export const executeFanout = async (
     timed_out: timedOutCount,
     cancelled: cancelledCount,
     rejected: rejectedCount,
+    abort_failed: abortFailedCount,
   });
 
   // Format aggregate

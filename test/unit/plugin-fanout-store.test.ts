@@ -169,11 +169,23 @@ describe("createFanoutStore", () => {
       expect(store.breakerState()).toBe("open");
     });
 
-    it("failed abort trips the breaker (qualifying failure)", () => {
+    it("failed (prompt error) does NOT trip the breaker — non-qualifying, resets streak", () => {
+      // Per D-3: `failed` from non-retryable prompt errors is NON-qualifying.
+      // It resets the streak in closed state.
+      const { failureThreshold } = DEFAULT_FANOUT_CONFIG.breaker;
+
+      // Record `failed` multiple times — streak stays at 0, breaker stays closed
+      for (let i = 0; i < failureThreshold; i++) {
+        store.recordOutcome("failed");
+      }
+      expect(store.breakerState()).toBe("closed");
+    });
+
+    it("abort_failed (cleanup abort timeout) trips the breaker — qualifying failure", () => {
       const { failureThreshold } = DEFAULT_FANOUT_CONFIG.breaker;
 
       for (let i = 0; i < failureThreshold; i++) {
-        store.recordOutcome("failed");
+        store.recordOutcome("abort_failed");
       }
       expect(store.breakerState()).toBe("open");
     });
@@ -264,7 +276,8 @@ describe("createFanoutStore", () => {
       expect(store.breakerState()).toBe("open");
     });
 
-    it("half_open — failed outcome also re-opens the breaker", () => {
+    it("half_open — failed (prompt error) closes the breaker — probe succeeded despite prompt error", () => {
+      // Per D-3: `failed` is non-qualifying. In half_open, it closes the breaker.
       const { failureThreshold, cooldownMs } = DEFAULT_FANOUT_CONFIG.breaker;
 
       for (let i = 0; i < failureThreshold; i++) store.recordOutcome("timed_out");
@@ -273,7 +286,20 @@ describe("createFanoutStore", () => {
       vi.advanceTimersByTime(cooldownMs);
       store.tryAcquire("fast"); // half_open
 
-      store.recordOutcome("failed");
+      store.recordOutcome("failed"); // non-qualifying, closes breaker
+      expect(store.breakerState()).toBe("closed");
+    });
+
+    it("half_open — abort_failed re-opens the breaker", () => {
+      const { failureThreshold, cooldownMs } = DEFAULT_FANOUT_CONFIG.breaker;
+
+      for (let i = 0; i < failureThreshold; i++) store.recordOutcome("timed_out");
+
+      vi.useFakeTimers();
+      vi.advanceTimersByTime(cooldownMs);
+      store.tryAcquire("fast"); // half_open
+
+      store.recordOutcome("abort_failed"); // qualifying, re-opens
       expect(store.breakerState()).toBe("open");
     });
 
@@ -304,6 +330,21 @@ describe("createFanoutStore", () => {
   // -------------------------------------------------------------------------
 
   describe("recordOutcome — qualifying vs non-qualifying", () => {
+    it("failed (prompt error) resets streak in closed state — does NOT accumulate", () => {
+      // Per D-3: `failed` is non-qualifying. It resets streak to 0.
+      const { failureThreshold } = DEFAULT_FANOUT_CONFIG.breaker;
+
+      // Interleaving failed with timed_out: failed resets, timed_out increments.
+      // After first timed_out: streak=1. After first failed: streak=0.
+      // Net: streak never reaches threshold.
+      for (let i = 0; i < failureThreshold; i++) {
+        store.recordOutcome("timed_out");
+        store.recordOutcome("failed"); // resets streak back to 0
+      }
+      // Streak oscillates: 1,0,1,0,... never reaches 3
+      expect(store.breakerState()).toBe("closed");
+    });
+
     it("mixed qualifying + non-qualifying: only qualifying accumulate", () => {
       const { failureThreshold } = DEFAULT_FANOUT_CONFIG.breaker;
 

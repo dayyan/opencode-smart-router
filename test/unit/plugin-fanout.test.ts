@@ -99,9 +99,9 @@ const makeCtx = (opts: {
   }
   const fanoutStore = createFanoutStore();
   if (opts.breakerState === "open") {
-    fanoutStore.recordOutcome("failed");
-    fanoutStore.recordOutcome("failed");
-    fanoutStore.recordOutcome("failed");
+    fanoutStore.recordOutcome("timed_out");
+    fanoutStore.recordOutcome("timed_out");
+    fanoutStore.recordOutcome("timed_out");
   }
   const ctx: PluginContext = {
     plugin: {
@@ -919,6 +919,22 @@ describe("executeFanout — global cap exhaustion", () => {
   });
 });
 
+describe("executeFanout — non-retryable prompt error does NOT trip the breaker (D-3)", () => {
+  it("5 consecutive batches with failed (prompt error) outcome: breaker stays closed", async () => {
+    const { ctx } = makeCtx({
+      callerTier: "heavy",
+      callerDepth: 1,
+      parentSid: "root-sid",
+    });
+    // Simulate 5 batches, each with a failed (non-retryable prompt error) outcome.
+    // Per D-3: failed is NON-qualifying, resets streak. Breaker stays closed.
+    for (let i = 0; i < 5; i++) {
+      ctx.fanoutStore.recordOutcome("failed"); // non-qualifying
+    }
+    expect(ctx.fanoutStore.breakerState()).toBe("closed");
+  });
+});
+
 describe("executeFanout — breaker open via timeout streak", () => {
   it("after 3 consecutive timed-out batches, fourth batch rejected as circuit_open", async () => {
     const { ctx, createSpy } = makeCtx({
@@ -927,10 +943,10 @@ describe("executeFanout — breaker open via timeout streak", () => {
       parentSid: "root-sid",
       cfg: FAST_CFG as RouterConfig,
     });
-    // Manually record 3 consecutive failures to open the breaker
-    ctx.fanoutStore.recordOutcome("failed");
-    ctx.fanoutStore.recordOutcome("failed");
-    ctx.fanoutStore.recordOutcome("failed");
+    // Manually record 3 consecutive qualifying failures to open the breaker
+    ctx.fanoutStore.recordOutcome("timed_out");
+    ctx.fanoutStore.recordOutcome("timed_out");
+    ctx.fanoutStore.recordOutcome("timed_out");
     expect(ctx.fanoutStore.breakerState()).toBe("open");
 
     // Fourth batch: session.create should NOT be called (rejected at breaker gate)
@@ -959,16 +975,16 @@ describe("executeFanout — breaker cooldown → half-open probe", () => {
       parentSid: "root-sid",
       cfg: { fanout: { ...BASE_CONFIG.fanout, cooldownMs: 10_000 } } as unknown as RouterConfig,
     });
-    // Pre-open the breaker
-    ctx.fanoutStore.recordOutcome("failed");
-    ctx.fanoutStore.recordOutcome("failed");
-    ctx.fanoutStore.recordOutcome("failed");
+    // Pre-open the breaker with qualifying failures
+    ctx.fanoutStore.recordOutcome("timed_out");
+    ctx.fanoutStore.recordOutcome("timed_out");
+    ctx.fanoutStore.recordOutcome("timed_out");
     expect(ctx.fanoutStore.breakerState()).toBe("open");
 
     // After cooldown, breakerState() would be 'half_open'. Simulate this by calling
     // recordOutcome with 'completed' which closes the breaker (FSM transition tested directly).
     // In the 'open' state, a successful probe doesn't close the breaker — it remains open.
-    // The real half_open behavior is: 'completed' -> 'closed', 'failed'/'timed_out' -> 'open'.
+    // The real half_open behavior is: 'completed' -> 'closed', 'timed_out'/'abort_failed' -> 'open'.
     // Since we can't easily fake time for the half_open transition, we test the FSM path directly.
     ctx.fanoutStore.recordOutcome("completed");
     expect(ctx.fanoutStore.breakerState()).toBe("open"); // still open — no half_open transition
@@ -986,10 +1002,10 @@ describe("executeFanout — breaker cooldown → half-open probe", () => {
         },
       } as unknown as RouterConfig,
     });
-    // Pre-open the breaker
-    ctx.fanoutStore.recordOutcome("failed");
-    ctx.fanoutStore.recordOutcome("failed");
-    ctx.fanoutStore.recordOutcome("failed");
+    // Pre-open the breaker with qualifying failures
+    ctx.fanoutStore.recordOutcome("timed_out");
+    ctx.fanoutStore.recordOutcome("timed_out");
+    ctx.fanoutStore.recordOutcome("timed_out");
     expect(ctx.fanoutStore.breakerState()).toBe("open");
 
     // After cooldown elapses, breakerState() would return 'half_open'.
