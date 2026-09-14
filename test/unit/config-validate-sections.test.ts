@@ -1124,11 +1124,31 @@ describe("validateFanout", () => {
       activePreset: "anthropic5",
       presets: {
         anthropic5: {
-          fast: { model: "anthropic/claude-haiku-4-5", description: "fast tier", whenToUse: ["recon"] },
-          light: { model: "anthropic/claude-haiku-4-5", description: "light tier", whenToUse: ["simple"] },
-          medium: { model: "anthropic/claude-haiku-4-5", description: "medium tier", whenToUse: ["standard"] },
-          focused: { model: "anthropic/claude-haiku-4-5", description: "focused tier", whenToUse: ["complex"] },
-          heavy: { model: "anthropic/claude-haiku-4-5", description: "heavy tier", whenToUse: ["architecture"] },
+          fast: {
+            model: "anthropic/claude-haiku-4-5",
+            description: "fast tier",
+            whenToUse: ["recon"],
+          },
+          light: {
+            model: "anthropic/claude-haiku-4-5",
+            description: "light tier",
+            whenToUse: ["simple"],
+          },
+          medium: {
+            model: "anthropic/claude-haiku-4-5",
+            description: "medium tier",
+            whenToUse: ["standard"],
+          },
+          focused: {
+            model: "anthropic/claude-haiku-4-5",
+            description: "focused tier",
+            whenToUse: ["complex"],
+          },
+          heavy: {
+            model: "anthropic/claude-haiku-4-5",
+            description: "heavy tier",
+            whenToUse: ["architecture"],
+          },
         },
       },
       rules: [],
