@@ -166,6 +166,10 @@ export const createSessionStore = () => {
   // Memoized depth cache. Recomputed lazily on first access per session.
   const depthCache = new Map<string, number>();
 
+  // Plan 044: producer and fanout worker session tracking.
+  const producers = new Set<string>();
+  const fanoutWorkers = new Set<string>();
+
   /**
    * Compute depth by walking up the parent chain, with cycle protection.
    * Returns 0 for root/unregistered sessions.
@@ -202,6 +206,7 @@ export const createSessionStore = () => {
      */
     registerProducerSession(sessionID: string, tier: string, cfg: RouterConfig): void {
       subagentSessionIDs.add(sessionID);
+      producers.add(sessionID);
       const baseline = cfg.tierCaps?.[tier] ?? DEFAULT_TIER_CAPS[tier] ?? 5;
       subagentCapState.set(sessionID, {
         tierName: tier,
@@ -250,12 +255,29 @@ export const createSessionStore = () => {
       return this.depth(sessionID) >= 1;
     },
 
+    /** Mark a session as a fanout worker (created by the fanout tool, PR 044). */
+    markFanoutWorker(sessionID: string): void {
+      fanoutWorkers.add(sessionID);
+    },
+
+    /** Returns true when sessionID is a fanout worker. */
+    isFanoutWorker(sessionID: string): boolean {
+      return fanoutWorkers.has(sessionID);
+    },
+
+    /** Returns true when sessionID is a producer session (registered via registerProducerSession). */
+    isProducerSession(sessionID: string): boolean {
+      return producers.has(sessionID);
+    },
+
     /** Remove a session from tracking (used to clean up delegate producer sessions). */
     unregister(sessionID: string): void {
       subagentSessionIDs.delete(sessionID);
       subagentCapState.delete(sessionID);
       parentMap.delete(sessionID);
       depthCache.delete(sessionID);
+      producers.delete(sessionID);
+      fanoutWorkers.delete(sessionID);
     },
 
     /**

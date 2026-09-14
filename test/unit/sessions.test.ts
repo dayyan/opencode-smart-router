@@ -462,3 +462,81 @@ describe("createSessionStore — depth / parent tracking", () => {
     expect(depthB).toBeLessThan(10);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Plan 044 — fanout worker and producer session markers
+// ---------------------------------------------------------------------------
+
+describe("createSessionStore — fanout worker markers", () => {
+  it("markFanoutWorker adds session to fanoutWorkers set", () => {
+    const store = createSessionStore();
+    store.markFanoutWorker("worker_1");
+    expect(store.isFanoutWorker("worker_1")).toBe(true);
+  });
+
+  it("isFanoutWorker returns false for unknown session", () => {
+    const store = createSessionStore();
+    expect(store.isFanoutWorker("unknown")).toBe(false);
+  });
+
+  it("unregister removes session from fanoutWorkers set", () => {
+    const store = createSessionStore();
+    store.markFanoutWorker("worker_2");
+    expect(store.isFanoutWorker("worker_2")).toBe(true);
+    store.unregister("worker_2");
+    expect(store.isFanoutWorker("worker_2")).toBe(false);
+  });
+
+  it("markFanoutWorker is idempotent (same session can be marked once)", () => {
+    const store = createSessionStore();
+    store.markFanoutWorker("worker_3");
+    store.markFanoutWorker("worker_3");
+    expect(store.isFanoutWorker("worker_3")).toBe(true);
+  });
+});
+
+describe("createSessionStore — isProducerSession predicate", () => {
+  it("isProducerSession is true after registerProducerSession", () => {
+    const store = createSessionStore();
+    store.registerProducerSession("prod_1", "medium", cfg);
+    expect(store.isProducerSession("prod_1")).toBe(true);
+  });
+
+  it("isProducerSession is false for unknown session", () => {
+    const store = createSessionStore();
+    expect(store.isProducerSession("unknown")).toBe(false);
+  });
+
+  it("isProducerSession is false after unregister", () => {
+    const store = createSessionStore();
+    store.registerProducerSession("prod_2", "heavy", cfg);
+    expect(store.isProducerSession("prod_2")).toBe(true);
+    store.unregister("prod_2");
+    expect(store.isProducerSession("prod_2")).toBe(false);
+  });
+
+  it("isProducerSession is false for session registered via registerFromChatMessage", () => {
+    const store = createSessionStore();
+    store.registerFromChatMessage(
+      { agent: "fast", sessionID: "sub_1" },
+      dispatch("recon"),
+      cfg,
+      tierNames,
+    );
+    expect(store.isProducerSession("sub_1")).toBe(false);
+  });
+});
+
+describe("createSessionStore — unregister cleans both markers", () => {
+  it("unregister removes from both producers and fanoutWorkers sets", () => {
+    const store = createSessionStore();
+    store.registerProducerSession("prod_3", "medium", cfg);
+    store.markFanoutWorker("worker_4");
+    expect(store.isProducerSession("prod_3")).toBe(true);
+    expect(store.isFanoutWorker("worker_4")).toBe(true);
+    store.unregister("prod_3");
+    store.unregister("worker_4");
+    expect(store.isProducerSession("prod_3")).toBe(false);
+    expect(store.isFanoutWorker("worker_4")).toBe(false);
+  });
+});
