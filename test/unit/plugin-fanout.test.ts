@@ -392,7 +392,7 @@ describe("executeFanout — parallelism", () => {
     const { executeFanout } = await import("../../src/plugin/fanout");
 
     // Replace session.prompt with a deferred promise so it hangs
-    let resolvePrompt: (v: unknown) => void;
+    let resolvePrompt: (v: unknown) => void = () => {};
     const hangingPromise = new Promise((r) => {
       resolvePrompt = r;
     });
@@ -698,7 +698,7 @@ describe("executeFanout — worker timeout", () => {
         cfg: FAST_CFG as RouterConfig,
       });
       // Worker A: never resolves
-      ctx.plugin.client.session.prompt = async () => new Promise(() => {});
+      ctx.plugin.client.session.prompt = async () => new Promise(() => {}) as any;
 
       const { executeFanout } = await import("../../src/plugin/fanout");
       const outPromise = executeFanout(
@@ -736,7 +736,7 @@ describe("executeFanout — worker timeout", () => {
         cfg: FAST_CFG as RouterConfig,
       });
       // All workers hang
-      ctx.plugin.client.session.prompt = async () => new Promise(() => {});
+      ctx.plugin.client.session.prompt = async () => new Promise(() => {}) as any;
 
       const { executeFanout } = await import("../../src/plugin/fanout");
       const outPromise = executeFanout(
@@ -773,7 +773,7 @@ describe("executeFanout — batch expiry", () => {
         parentSid: "root-sid",
         cfg: FAST_CFG as RouterConfig,
       });
-      ctx.plugin.client.session.prompt = async () => new Promise(() => {});
+      ctx.plugin.client.session.prompt = async () => new Promise(() => {}) as any;
 
       const { executeFanout } = await import("../../src/plugin/fanout");
       const outPromise = executeFanout(
@@ -818,7 +818,7 @@ describe("executeFanout — caller cancellation (signal abort)", () => {
         // Fire signal while second worker prompt is in flight
         ac.abort();
       }
-      return new Promise(() => {}); // hang
+      return new Promise(() => {}) as any; // hang
     };
 
     const { executeFanout } = await import("../../src/plugin/fanout");
@@ -957,7 +957,7 @@ describe("executeFanout — breaker cooldown → half-open probe", () => {
       callerTier: "heavy",
       callerDepth: 1,
       parentSid: "root-sid",
-      cfg: { fanout: { ...BASE_CONFIG.fanout, cooldownMs: 10_000 } } as RouterConfig,
+      cfg: { fanout: { ...BASE_CONFIG.fanout, cooldownMs: 10_000 } } as unknown as RouterConfig,
     });
     // Pre-open the breaker
     ctx.fanoutStore.recordOutcome("failed");
@@ -984,7 +984,7 @@ describe("executeFanout — breaker cooldown → half-open probe", () => {
           ...BASE_CONFIG.fanout,
           cooldownMs: 10_000,
         },
-      } as RouterConfig,
+      } as unknown as RouterConfig,
     });
     // Pre-open the breaker
     ctx.fanoutStore.recordOutcome("failed");

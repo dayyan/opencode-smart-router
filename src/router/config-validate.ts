@@ -806,7 +806,9 @@ export const validateFanout = (raw: Record<string, unknown>): void => {
     const presets = raw.presets as Record<string, Record<string, unknown>> | undefined;
     const presetTiers =
       activePreset && presets?.[activePreset] ? Object.keys(presets[activePreset]) : [];
-    const validKeys = new Set([...presetTiers, "fast", "light", "medium"]);
+    // Only tiers that are in BOTH the active preset AND the fanout domain are valid
+    const fanoutDomain = new Set(["fast", "light", "medium"]);
+    const validKeys = new Set(presetTiers.filter((t) => fanoutDomain.has(t)));
     for (const key of Object.keys(fanout.maxConcurrentPerTier)) {
       if (!validKeys.has(key)) {
         throw new Error(

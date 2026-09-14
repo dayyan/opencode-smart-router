@@ -57,6 +57,16 @@ const validRaw = (extra: Record<string, unknown> = {}): Record<string, unknown> 
           description: "fast tier",
           whenToUse: ["recon"],
         },
+        light: {
+          model: "anthropic/claude-haiku-4-5",
+          description: "light tier",
+          whenToUse: ["simple edits"],
+        },
+        medium: {
+          model: "anthropic/claude-haiku-4-5",
+          description: "medium tier",
+          whenToUse: ["standard tasks"],
+        },
       },
     },
     rules: ["r1"],
@@ -1091,7 +1101,7 @@ describe("validateFanout", () => {
     expect(() => validateConfig(raw as any)).toThrow(/batchTimeoutMs.*workerTimeoutMs/i);
   });
 
-  // maxConcurrentPerTier: valid tier keys (fast, light, medium) within active preset pass
+  // maxConcurrentPerTier: INTERSECTION — only tiers in activePreset ∩ {fast,light,medium} pass
   it("accepts valid maxConcurrentPerTier keys within active preset", () => {
     const raw = validRaw({
       fanout: { maxConcurrentPerTier: { fast: 4, light: 2, medium: 1 } },
@@ -1099,10 +1109,32 @@ describe("validateFanout", () => {
     expect(() => validateConfig(raw as any)).not.toThrow();
   });
 
-  // maxConcurrentPerTier: unknown tier keys outside active-preset ∩ {fast,light,medium} are rejected
-  it("rejects unknown maxConcurrentPerTier keys with a typed error naming the key", () => {
-    // heavy is not in the 3-tier anthropic preset, so it should be rejected
+  // maxConcurrentPerTier: key not in intersection of active preset and {fast,light,medium}
+  it("rejects maxConcurrentPerTier heavy key (heavy not in fanout domain)", () => {
+    // heavy is not in the 3-tier anthropic preset (after validRaw update), so it fails
     const raw = validRaw({ fanout: { maxConcurrentPerTier: { heavy: 4 } } });
+    expect(() => validateConfig(raw as any)).toThrow(/heavy/);
+  });
+
+  // maxConcurrentPerTier: INTERSECTION domain — even tiers present in the active preset
+  // are rejected if they are outside {fast, light, medium} (engram #4963 mandate).
+  // heavy is in the 5-tier anthropic preset but is NOT in the fanout domain, so it fails.
+  it("rejects maxConcurrentPerTier heavy key even when heavy is in the active preset", () => {
+    const raw: Record<string, unknown> = {
+      activePreset: "anthropic5",
+      presets: {
+        anthropic5: {
+          fast: { model: "anthropic/claude-haiku-4-5", description: "fast tier", whenToUse: ["recon"] },
+          light: { model: "anthropic/claude-haiku-4-5", description: "light tier", whenToUse: ["simple"] },
+          medium: { model: "anthropic/claude-haiku-4-5", description: "medium tier", whenToUse: ["standard"] },
+          focused: { model: "anthropic/claude-haiku-4-5", description: "focused tier", whenToUse: ["complex"] },
+          heavy: { model: "anthropic/claude-haiku-4-5", description: "heavy tier", whenToUse: ["architecture"] },
+        },
+      },
+      rules: [],
+      defaultTier: "fast",
+      fanout: { maxConcurrentPerTier: { heavy: 4 } },
+    };
     expect(() => validateConfig(raw as any)).toThrow(/heavy/);
   });
 

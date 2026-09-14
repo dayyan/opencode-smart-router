@@ -1,6 +1,8 @@
 // Fanout tool executor (PR 3b) — parallel worker lifecycle + markdown aggregate.
 // Admission: depth===1, caller tier {medium|focused|heavy}, not producer/grader/worker,
 // enabled, breaker closed, non-empty items, items.length <= maxWorkersPerBatch.
+
+import { DEFAULT_FANOUT_CONFIG } from "../router/config.types";
 import { log } from "../utils/observability";
 import { resolveTierModelGuard } from "../utils/tier-model-guard";
 import { withTimeout } from "../utils/timeout";
@@ -193,6 +195,9 @@ export const executeFanout = async (
     return formatRejectedAggregate("fanout disabled (kill switch)");
   }
 
+  // Derive a fully-populated config so downstream uses are always number (not number|undefined)
+  const effectiveCfg = { ...DEFAULT_FANOUT_CONFIG, ...fanoutCfg };
+
   // Breaker FSM: reject only when explicitly `open`. `half_open` admits a
   // single probe batch (the design's recovery contract); `closed` admits
   // normally.
@@ -216,9 +221,9 @@ export const executeFanout = async (
   }
 
   // --- Batch-level cap ---
-  if (args.items.length > fanoutCfg.maxWorkersPerBatch) {
+  if (args.items.length > effectiveCfg.maxWorkersPerBatch) {
     return formatRejectedAggregate(
-      `items.length ${args.items.length} > maxWorkersPerBatch ${fanoutCfg.maxWorkersPerBatch}`,
+      `items.length ${args.items.length} > maxWorkersPerBatch ${effectiveCfg.maxWorkersPerBatch}`,
     );
   }
 
@@ -385,7 +390,7 @@ export const executeFanout = async (
                 parts: [{ type: "text", text: item.prompt }],
               },
             }),
-            fanoutCfg.workerTimeoutMs,
+            effectiveCfg.workerTimeoutMs,
             "fanout session.prompt",
             signal,
           );
@@ -410,7 +415,7 @@ export const executeFanout = async (
               index: idx,
               tier: item.tier,
               status: "timed_out",
-              reason: `worker exceeded ${fanoutCfg.workerTimeoutMs}ms; abort attempted`,
+              reason: `worker exceeded ${effectiveCfg.workerTimeoutMs}ms; abort attempted`,
             };
           }
           return {
@@ -435,7 +440,7 @@ export const executeFanout = async (
   const batchPromise = Promise.allSettled(workerPromises);
 
   try {
-    await withTimeout(batchPromise, fanoutCfg.batchTimeoutMs, "fanout batch", signal);
+    await withTimeout(batchPromise, effectiveCfg.batchTimeoutMs, "fanout batch", signal);
   } catch {
     batchTimedOut = true;
   }
