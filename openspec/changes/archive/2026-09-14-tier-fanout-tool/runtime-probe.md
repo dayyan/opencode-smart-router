@@ -69,10 +69,50 @@ Additional evidence to capture:
 
 ## Evidence (append raw outputs below this line)
 
-- [ ] Probe 1 executed: PASS / FAIL
-- [ ] Probe 2 evidence captured: PASS / FAIL
-- Probe 1 raw output:
-- Probe 2 evidence:
+- [x] Probe 1 executed: PASS
+- [x] Probe 2 evidence captured: PASS
+
+### Probe 1 result (2026-09-14)
+
+The depth-1 medium child discovered and invoked the plugin-owned `fanout`
+tool directly. Raw result:
+
+```text
+## [1] tier=fast status=completed
+PROBE_OK
+
+## [2] tier=fast status=completed
+PROBE_OK_2
+```
+
+The call returned in approximately one second. There was no
+`UNKNOWN_TOOL`, timeout, or error.
+
+### Probe 2 result (2026-09-14)
+
+OpenCode's own server log at
+`~/.local/share/opencode/log/opencode.log` recorded the following session
+creation relationships during the probe:
+
+| Session | Observed parentID | Role |
+|---|---|---|
+| `ses_f5e51147effeqO44UyZeQNTT4c` | `ses_f5e5fe242ffeeUmmSpWKYBUnwU` | depth-1 medium caller |
+| `ses_f5e50fe4fffeNPnRSBWAcJ0FbV` | `ses_f5e5fe242ffeeUmmSpWKYBUnwU` | fanout worker |
+| `ses_f5e50fe44ffeVBgnXs73Ywlg2d` | `ses_f5e5fe242ffeeUmmSpWKYBUnwU` | fanout worker |
+| `ses_f5e50ce4effeY05OHwHrPFv5Dn` | `ses_f5e5fe242ffeeUmmSpWKYBUnwU` | additional generic child observed in probe window |
+
+The root session was `ses_f5e5fe242ffeeUmmSpWKYBUnwU`. The two fanout
+workers were parented to that root, not to the medium caller, proving the
+no-grandchildren invariant. Their session creation and prompts completed
+without hanging.
+
+The plugin's own `[model-router]` telemetry was not present in the OpenCode
+log: `src/utils/observability.ts` writes to process stdout/stderr and has no
+file sink. Therefore `fanout.unreconciled_worker` was not independently
+observable; this is an evidence limitation, not a probe failure.
+
+**STOP-gated verdict: PASS.** Both runtime assumptions passed. No further
+feature implementation is blocked by these probes.
 
 ## After the probes (either outcome)
 
