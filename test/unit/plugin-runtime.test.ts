@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "../../src/plugin/context";
+import { createFanoutStore } from "../../src/plugin/fanout-store";
 import { assembleRuntimeHooks } from "../../src/plugin/runtime";
 import type { Preset } from "../../src/router/config";
 
@@ -108,6 +109,7 @@ const makeCtx = (): PluginContext => {
     guardStore: guardStore as any,
     changedFileStore: changedFileStore as any,
     reasoningStore: {} as any,
+    fanoutStore: createFanoutStore(),
     graderSessions: new Set<string>(),
     verifyMutex: {} as any,
     seams: { exec: {} as any, fs: {} as any },

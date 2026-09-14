@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PluginContext } from "../../src/plugin/context";
+import { createFanoutStore } from "../../src/plugin/fanout-store";
 import {
   handleChatMessage,
   handleChatParams,
@@ -218,6 +219,7 @@ const makeHarness = (opts?: {
     guardStore: guardStore as any,
     changedFileStore: changedFileStore as any,
     reasoningStore: createReasoningStore(),
+    fanoutStore: createFanoutStore(),
     graderSessions: harness.graderSessions,
     verifyMutex: {} as any,
     seams: { exec: {} as any, fs: {} as any },

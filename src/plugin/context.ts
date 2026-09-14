@@ -41,6 +41,7 @@ import { createExecSeam } from "../utils/shell";
 import { createMutexRegistry } from "../verify/deterministic";
 import { createChangedFileStore } from "../verify/dispatch";
 import type { ExecSeam, FsSeam, MutexRegistry } from "../verify/types";
+import { createFanoutStore } from "./fanout-store";
 
 /**
  * Mutable per-plugin runtime state that isn't a store (today: only the bypass flag).
@@ -119,6 +120,11 @@ export interface PluginContext {
    *  baseline snapshots + deferred advisory notes. See
    *  `src/reasoning/store.ts`. */
   reasoningStore: ReturnType<typeof createReasoningStore>;
+
+  /** PR 4 plan 044: per-plugin-instance fanout containment store.
+   *  Tracks per-tier + global worker counts and the circuit breaker FSM.
+   *  Not registered as a tool until PR 3 — this is just the state layer. */
+  fanoutStore: ReturnType<typeof createFanoutStore>;
 
   /** The live `opencodeConfig` reference, captured at `handleConfig` time.
    *  Runtime hooks (tool.execute.before/after) use this to apply / revert
@@ -217,6 +223,7 @@ export const createPluginContext = async (plugin: PluginInput): Promise<PluginCo
     guardStore: createGuardStore(),
     changedFileStore: createChangedFileStore(),
     reasoningStore: createReasoningStore(),
+    fanoutStore: createFanoutStore(),
     graderSessions: new Set<string>(),
     verifyMutex: createMutexRegistry(),
     seams: {

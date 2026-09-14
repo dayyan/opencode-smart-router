@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "../../src/plugin/context";
 import { executeDelegate } from "../../src/plugin/delegate";
+import { createFanoutStore } from "../../src/plugin/fanout-store";
 import { createReasoningStore } from "../../src/reasoning/store";
 import * as agentsModule from "../../src/router/agents";
 import type { RouterConfig } from "../../src/router/config";
@@ -238,6 +239,7 @@ const makeCtx = (opts: {
       record: () => undefined,
     } as any,
     reasoningStore: createReasoningStore(),
+    fanoutStore: createFanoutStore(),
     graderSessions: new Set<string>(),
     verifyMutex: {} as any,
     seams: { exec: {} as any, fs: {} as any },

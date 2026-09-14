@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "../../src/plugin/context";
 import { createPluginContext } from "../../src/plugin/context";
+import { createFanoutStore } from "../../src/plugin/fanout-store";
 import type { RouterConfig } from "../../src/router/config";
 
 // ---------------------------------------------------------------------------
@@ -172,6 +173,7 @@ describe("PluginContext.getFreshConfig", () => {
       guardStore: {} as any,
       changedFileStore: {} as any,
       reasoningStore: {} as any,
+      fanoutStore: createFanoutStore(),
       graderSessions: new Set<string>(),
       verifyMutex: {} as any,
       seams: { exec: {} as any, fs: {} as any },

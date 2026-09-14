@@ -125,6 +125,11 @@ describe("createPluginContext — getConfig / refreshConfig wiring", () => {
     expect(ctx.seams.exec).toBeDefined();
     expect(ctx.seams.fs).toBeDefined();
     expect(ctx.state.bypassed).toBe(false);
+    expect(ctx.fanoutStore).toBeDefined();
+    expect(typeof ctx.fanoutStore.tryAcquire).toBe("function");
+    expect(typeof ctx.fanoutStore.release).toBe("function");
+    expect(typeof ctx.fanoutStore.recordOutcome).toBe("function");
+    expect(typeof ctx.fanoutStore.breakerState).toBe("function");
   });
 });
 
@@ -259,5 +264,6 @@ describe("createPluginContext — direct seam wiring", () => {
     expect(a.guardStore).not.toBe(b.guardStore);
     expect(a.trajectoryStore).not.toBe(b.trajectoryStore);
     expect(a.verifyMutex).not.toBe(b.verifyMutex);
+    expect(a.fanoutStore).not.toBe(b.fanoutStore);
   });
 });

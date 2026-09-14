@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dumpDelegateScorecard } from "../../src/escalate/ladder";
 import type { PluginContext } from "../../src/plugin/context";
+import { createFanoutStore } from "../../src/plugin/fanout-store";
 import type { RouterConfig } from "../../src/router/config";
 import { createFsSeam } from "../../src/utils/fs";
 import { buildGateDeps, dispatchGrader, verifyTaskAfterHook } from "../../src/verify/dispatch";
@@ -132,6 +133,7 @@ const makeCtx = (opts: {
       record: opts.changedFileStore?.record ?? (() => undefined),
     } as any,
     reasoningStore: {} as any,
+    fanoutStore: createFanoutStore(),
     graderSessions: new Set<string>(),
     verifyMutex: { runExclusive: async (_k: string, fn: () => Promise<any>) => fn() } as any,
     seams: {

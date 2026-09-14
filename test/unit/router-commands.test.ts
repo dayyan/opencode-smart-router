@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PluginContext } from "../../src/plugin/context";
+import { createFanoutStore } from "../../src/plugin/fanout-store";
 import { createReasoningStore } from "../../src/reasoning/store";
 import { resolveControlPatch } from "../../src/reasoning/translate";
 import {
@@ -327,6 +328,7 @@ const makeReasoningCtx = (cfg: RouterConfig, _sid = "sess-test"): PluginContext 
     guardStore: {} as any,
     changedFileStore: {} as any,
     reasoningStore: createReasoningStore(),
+    fanoutStore: createFanoutStore(),
     graderSessions: new Set<string>(),
     verifyMutex: {} as any,
     seams: { exec: {} as any, fs: {} as any },
