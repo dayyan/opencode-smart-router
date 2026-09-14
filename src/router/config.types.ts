@@ -272,6 +272,36 @@ export interface ReasoningPolicyConfigV2 {
   };
 }
 
+export interface FanoutBreakerConfig {
+  failureThreshold: number;
+  cooldownMs: number;
+}
+
+export interface FanoutConfig {
+  enabled?: boolean;
+  maxWorkersPerBatch?: number;
+  maxConcurrentGlobal?: number;
+  /** Keys must be within active-preset tiers ∩ {fast, light, medium}. */
+  maxConcurrentPerTier?: Partial<Record<"fast" | "light" | "medium", number>>;
+  workerTimeoutMs?: number;
+  batchTimeoutMs?: number;
+  breaker?: FanoutBreakerConfig;
+}
+
+/**
+ * Defaults for the fanout configuration block.
+ * Defaults are applied at config-load time when the block or individual keys are absent.
+ */
+export const DEFAULT_FANOUT_CONFIG: Required<FanoutConfig> = {
+  enabled: false,
+  maxWorkersPerBatch: 4,
+  maxConcurrentGlobal: 6,
+  maxConcurrentPerTier: { fast: 4, light: 2, medium: 1 },
+  workerTimeoutMs: 120000,
+  batchTimeoutMs: 180000,
+  breaker: { failureThreshold: 3, cooldownMs: 60000 },
+};
+
 export interface RouterConfig {
   activePreset: string;
   activeMode?: string;
@@ -291,6 +321,8 @@ export interface RouterConfig {
   /** PR 2 of adaptive-reasoning: per-tier override + runtime patch wiring.
    *  All fields optional → pre-change configs work unedited. */
   reasoningPolicy?: ReasoningPolicyConfigV2;
+  /** Plan 044: child-initiated fan-out tool configuration. */
+  fanout?: FanoutConfig;
 }
 
 export interface RouterState {

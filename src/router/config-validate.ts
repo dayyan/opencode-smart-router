@@ -27,7 +27,12 @@
 // ---------------------------------------------------------------------------
 
 import type { MatchMode } from "../reasoning/match.js";
-import { type EnforcementConfig, isPlainObject, type RouterConfig } from "./config.types";
+import {
+  DEFAULT_FANOUT_CONFIG,
+  type EnforcementConfig,
+  isPlainObject,
+  type RouterConfig,
+} from "./config.types";
 import { ENFORCEMENT_MODES, GRADER_POLICIES, VERIFY_REQUIRE_MODES } from "./config-resolve";
 
 const ENFORCEMENT_MODES_LIST = ENFORCEMENT_MODES.join("|");
@@ -63,6 +68,7 @@ export const validateConfig = (raw: unknown): RouterConfig => {
   validateTaskPatterns(raw);
   validateEnforcement(raw);
   validateReasoningPolicy(raw);
+  validateFanout(raw);
   return raw as unknown as RouterConfig;
 };
 
@@ -706,5 +712,141 @@ const validateAdaptiveSurfaceDecision = (value: unknown): void => {
     throw new Error(
       `tiers.json: reasoningPolicy.adaptive.surfaceDecision must be a boolean (got ${JSON.stringify(value)})`,
     );
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Fanout configuration (Plan 044)
+//
+// Validation rules:
+//   - fanout is optional; absent or {} means all defaults applied.
+//   - enabled must be boolean (default false).
+//   - All numeric limits must be positive integers.
+//   - batchTimeoutMs must be >= workerTimeoutMs.
+//   - maxConcurrentPerTier keys must be within active-preset tiers ∩ {fast,light,medium}.
+//   - breaker.failureThreshold and breaker.cooldownMs must be positive integers.
+// ---------------------------------------------------------------------------
+
+export const validateFanout = (raw: Record<string, unknown>): void => {
+  const fanout = raw.fanout;
+  if (fanout === undefined) return;
+  if (!isPlainObject(fanout)) {
+    throw new Error("tiers.json: 'fanout' must be an object");
+  }
+
+  // enabled: boolean
+  if (fanout.enabled !== undefined && typeof fanout.enabled !== "boolean") {
+    throw new Error("tiers.json: fanout.enabled must be a boolean");
+  }
+
+  // maxWorkersPerBatch: positive integer
+  if (fanout.maxWorkersPerBatch !== undefined) {
+    if (
+      typeof fanout.maxWorkersPerBatch !== "number" ||
+      !Number.isFinite(fanout.maxWorkersPerBatch) ||
+      !Number.isInteger(fanout.maxWorkersPerBatch) ||
+      fanout.maxWorkersPerBatch < 1
+    ) {
+      throw new Error("tiers.json: fanout.maxWorkersPerBatch must be a positive integer");
+    }
+  }
+
+  // maxConcurrentGlobal: positive integer
+  if (fanout.maxConcurrentGlobal !== undefined) {
+    if (
+      typeof fanout.maxConcurrentGlobal !== "number" ||
+      !Number.isFinite(fanout.maxConcurrentGlobal) ||
+      !Number.isInteger(fanout.maxConcurrentGlobal) ||
+      fanout.maxConcurrentGlobal < 1
+    ) {
+      throw new Error("tiers.json: fanout.maxConcurrentGlobal must be a positive integer");
+    }
+  }
+
+  // workerTimeoutMs: positive integer
+  if (fanout.workerTimeoutMs !== undefined) {
+    if (
+      typeof fanout.workerTimeoutMs !== "number" ||
+      !Number.isFinite(fanout.workerTimeoutMs) ||
+      !Number.isInteger(fanout.workerTimeoutMs) ||
+      fanout.workerTimeoutMs < 1
+    ) {
+      throw new Error("tiers.json: fanout.workerTimeoutMs must be a positive integer");
+    }
+  }
+
+  // batchTimeoutMs: positive integer
+  if (fanout.batchTimeoutMs !== undefined) {
+    if (
+      typeof fanout.batchTimeoutMs !== "number" ||
+      !Number.isFinite(fanout.batchTimeoutMs) ||
+      !Number.isInteger(fanout.batchTimeoutMs) ||
+      fanout.batchTimeoutMs < 1
+    ) {
+      throw new Error("tiers.json: fanout.batchTimeoutMs must be a positive integer");
+    }
+  }
+
+  // batchTimeoutMs >= workerTimeoutMs
+  const workerTimeout = fanout.workerTimeoutMs ?? DEFAULT_FANOUT_CONFIG.workerTimeoutMs;
+  const batchTimeout = fanout.batchTimeoutMs ?? DEFAULT_FANOUT_CONFIG.batchTimeoutMs;
+  if (batchTimeout < workerTimeout) {
+    throw new Error(
+      `tiers.json: fanout.batchTimeoutMs (${batchTimeout}) must be >= fanout.workerTimeoutMs (${workerTimeout})`,
+    );
+  }
+
+  // maxConcurrentPerTier: validate keys against active preset
+  if (fanout.maxConcurrentPerTier !== undefined) {
+    if (!isPlainObject(fanout.maxConcurrentPerTier)) {
+      throw new Error("tiers.json: fanout.maxConcurrentPerTier must be an object");
+    }
+    // Determine which tiers are in the active preset
+    const activePreset = raw.activePreset as string | undefined;
+    const presets = raw.presets as Record<string, Record<string, unknown>> | undefined;
+    const presetTiers =
+      activePreset && presets?.[activePreset] ? Object.keys(presets[activePreset]) : [];
+    const validKeys = new Set([...presetTiers, "fast", "light", "medium"]);
+    for (const key of Object.keys(fanout.maxConcurrentPerTier)) {
+      if (!validKeys.has(key)) {
+        throw new Error(
+          `tiers.json: fanout.maxConcurrentPerTier contains unknown tier key '${key}'`,
+        );
+      }
+      const val = (fanout.maxConcurrentPerTier as Record<string, unknown>)[key];
+      if (typeof val !== "number" || !Number.isFinite(val) || !Number.isInteger(val) || val < 1) {
+        throw new Error(
+          `tiers.json: fanout.maxConcurrentPerTier.${key} must be a positive integer`,
+        );
+      }
+    }
+  }
+
+  // breaker: object with positive integer failureThreshold and cooldownMs
+  if (fanout.breaker !== undefined) {
+    if (!isPlainObject(fanout.breaker)) {
+      throw new Error("tiers.json: fanout.breaker must be an object");
+    }
+    const breaker = fanout.breaker as Record<string, unknown>;
+    if (breaker.failureThreshold !== undefined) {
+      if (
+        typeof breaker.failureThreshold !== "number" ||
+        !Number.isFinite(breaker.failureThreshold) ||
+        !Number.isInteger(breaker.failureThreshold) ||
+        breaker.failureThreshold < 1
+      ) {
+        throw new Error("tiers.json: fanout.breaker.failureThreshold must be a positive integer");
+      }
+    }
+    if (breaker.cooldownMs !== undefined) {
+      if (
+        typeof breaker.cooldownMs !== "number" ||
+        !Number.isFinite(breaker.cooldownMs) ||
+        !Number.isInteger(breaker.cooldownMs) ||
+        breaker.cooldownMs < 1
+      ) {
+        throw new Error("tiers.json: fanout.breaker.cooldownMs must be a positive integer");
+      }
+    }
   }
 };

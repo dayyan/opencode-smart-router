@@ -1023,3 +1023,114 @@ describe("validateConfig orchestrator", () => {
     expect(() => validateConfig(raw as any)).not.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Fanout configuration (Plan 044)
+// ---------------------------------------------------------------------------
+
+describe("validateFanout", () => {
+  // Valid fanout config — full explicit values pass
+  it("accepts a fully-specified valid fanout block", () => {
+    const raw = validRaw({
+      fanout: {
+        enabled: false,
+        maxWorkersPerBatch: 4,
+        maxConcurrentGlobal: 6,
+        maxConcurrentPerTier: { fast: 4, light: 2, medium: 1 },
+        workerTimeoutMs: 120000,
+        batchTimeoutMs: 180000,
+        breaker: { failureThreshold: 3, cooldownMs: 60000 },
+      },
+    });
+    expect(() => validateConfig(raw as any)).not.toThrow();
+  });
+
+  // Empty config is valid — all defaults are applied
+  it("accepts an empty fanout block (defaults applied)", () => {
+    const raw = validRaw({ fanout: {} });
+    expect(() => validateConfig(raw as any)).not.toThrow();
+  });
+
+  // Fanout absent is valid — fanout is entirely optional
+  it("skips when fanout is absent", () => {
+    expect(() => validateConfig(validRaw())).not.toThrow();
+  });
+
+  // enabled must be boolean
+  it("rejects non-boolean enabled", () => {
+    const raw = validRaw({ fanout: { enabled: "yes" as any } });
+    expect(() => validateConfig(raw as any)).toThrow(/fanout\.enabled/);
+  });
+
+  // Numeric limits must be positive integers
+  it("rejects non-positive maxWorkersPerBatch", () => {
+    const raw = validRaw({ fanout: { maxWorkersPerBatch: 0 } });
+    expect(() => validateConfig(raw as any)).toThrow(/maxWorkersPerBatch/);
+    const raw2 = validRaw({ fanout: { maxWorkersPerBatch: -1 } });
+    expect(() => validateConfig(raw2 as any)).toThrow(/maxWorkersPerBatch/);
+  });
+
+  it("rejects non-positive maxConcurrentGlobal", () => {
+    const raw = validRaw({ fanout: { maxConcurrentGlobal: 0 } });
+    expect(() => validateConfig(raw as any)).toThrow(/maxConcurrentGlobal/);
+  });
+
+  it("rejects non-positive workerTimeoutMs", () => {
+    const raw = validRaw({ fanout: { workerTimeoutMs: 0 } });
+    expect(() => validateConfig(raw as any)).toThrow(/workerTimeoutMs/);
+  });
+
+  it("rejects non-positive batchTimeoutMs", () => {
+    const raw = validRaw({ fanout: { batchTimeoutMs: 0 } });
+    expect(() => validateConfig(raw as any)).toThrow(/batchTimeoutMs/);
+  });
+
+  // batchTimeoutMs must be >= workerTimeoutMs
+  it("rejects batchTimeoutMs below workerTimeoutMs", () => {
+    const raw = validRaw({ fanout: { workerTimeoutMs: 120000, batchTimeoutMs: 60000 } });
+    expect(() => validateConfig(raw as any)).toThrow(/batchTimeoutMs.*workerTimeoutMs/i);
+  });
+
+  // maxConcurrentPerTier: valid tier keys (fast, light, medium) within active preset pass
+  it("accepts valid maxConcurrentPerTier keys within active preset", () => {
+    const raw = validRaw({
+      fanout: { maxConcurrentPerTier: { fast: 4, light: 2, medium: 1 } },
+    });
+    expect(() => validateConfig(raw as any)).not.toThrow();
+  });
+
+  // maxConcurrentPerTier: unknown tier keys outside active-preset ∩ {fast,light,medium} are rejected
+  it("rejects unknown maxConcurrentPerTier keys with a typed error naming the key", () => {
+    // heavy is not in the 3-tier anthropic preset, so it should be rejected
+    const raw = validRaw({ fanout: { maxConcurrentPerTier: { heavy: 4 } } });
+    expect(() => validateConfig(raw as any)).toThrow(/heavy/);
+  });
+
+  it("rejects focused in maxConcurrentPerTier (not in active 3-tier preset)", () => {
+    const raw = validRaw({ fanout: { maxConcurrentPerTier: { focused: 4 } } });
+    expect(() => validateConfig(raw as any)).toThrow(/focused/);
+  });
+
+  // breaker validation
+  it("rejects non-object breaker", () => {
+    const raw = validRaw({ fanout: { breaker: "invalid" as any } });
+    expect(() => validateConfig(raw as any)).toThrow(/breaker/);
+  });
+
+  it("rejects non-positive failureThreshold", () => {
+    const raw = validRaw({ fanout: { breaker: { failureThreshold: 0, cooldownMs: 60000 } } });
+    expect(() => validateConfig(raw as any)).toThrow(/failureThreshold/);
+  });
+
+  it("rejects non-positive cooldownMs", () => {
+    const raw = validRaw({ fanout: { breaker: { failureThreshold: 3, cooldownMs: 0 } } });
+    expect(() => validateConfig(raw as any)).toThrow(/cooldownMs/);
+  });
+
+  // enabled:true is valid config but rejected at runtime (fanout tool not yet registered)
+  // Validation itself should accept enabled:true since it's a valid boolean value
+  it("accepts enabled:true (runtime rejects; validation is purely structural)", () => {
+    const raw = validRaw({ fanout: { enabled: true } });
+    expect(() => validateConfig(raw as any)).not.toThrow();
+  });
+});
