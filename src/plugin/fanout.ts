@@ -86,6 +86,7 @@ const cleanupWorkerSession = async (
   // session.delete is NEVER called (binding rule from plan 044).
   // session.abort is conditional: only called on non-success paths.
   if (!workerSucceeded && workerSid) {
+    log.info({ event: "fanout.worker_aborted", sid: workerSid });
     try {
       await withTimeout(
         ctx.plugin.client.session.abort({ path: { id: workerSid } }),
@@ -93,9 +94,9 @@ const cleanupWorkerSession = async (
         "fanout session.abort",
       );
     } catch (err) {
+      // 10s abort timeout — cleanup failure, feeds breaker as qualifying failure
       log.warn({
-        event: "fanout.worker_cleanup_failed",
-        store: "session.abort",
+        event: "fanout.abort_failed",
         sid: workerSid,
         error: err instanceof Error ? err.message : String(err),
       });
@@ -169,43 +170,55 @@ export const executeFanout = async (
 
   const depth = ctx.sessionStore.depth(callerSid);
   if (depth !== 1) {
+    log.warn({ event: "fanout.batch_rejected", reason: "depth_not_1" });
     return formatRejectedAggregate(`depth ${depth} !== 1; fanout requires depth-1 caller`);
   }
 
   const callerTier = ctx.sessionStore.getTier(callerSid) ?? "unknown";
   if (!CALLER_TIER_ALLOWLIST.has(callerTier)) {
+    log.warn({ event: "fanout.batch_rejected", reason: "caller_tier_not_allowed", callerTier });
     return formatRejectedAggregate(
       `caller tier '${callerTier}' not in allowlist; medium/heavy callers only`,
     );
   }
 
   if (ctx.sessionStore.isProducerSession(callerSid)) {
+    log.warn({ event: "fanout.batch_rejected", reason: "producer_session" });
     return formatRejectedAggregate("producer sessions cannot call fanout");
   }
 
   if (ctx.graderSessions.has(callerSid)) {
+    log.warn({ event: "fanout.batch_rejected", reason: "grader_session" });
     return formatRejectedAggregate("grader sessions cannot call fanout");
   }
 
   if (ctx.sessionStore.isFanoutWorker(callerSid)) {
+    log.warn({ event: "fanout.batch_rejected", reason: "fanout_worker" });
     return formatRejectedAggregate("fanout workers cannot call fanout");
   }
 
   if (fanoutCfg?.enabled !== true) {
+    log.warn({ event: "fanout.batch_rejected", reason: "disabled" });
     return formatRejectedAggregate("fanout disabled (kill switch)");
   }
 
   // Derive a fully-populated config so downstream uses are always number (not number|undefined)
   const effectiveCfg = { ...DEFAULT_FANOUT_CONFIG, ...fanoutCfg };
 
+  // Thread user config into the store so configured caps and breaker thresholds
+  // are actually enforced (R-3).
+  ctx.fanoutStore.configure(effectiveCfg);
+
   // Breaker FSM: reject only when explicitly `open`. `half_open` admits a
   // single probe batch (the design's recovery contract); `closed` admits
   // normally.
   if (ctx.fanoutStore.breakerState() === "open") {
+    log.warn({ event: "fanout.batch_rejected", reason: "circuit_open" });
     return formatRejectedAggregate("circuit breaker open");
   }
 
   if (args.items.length === 0) {
+    log.warn({ event: "fanout.batch_rejected", reason: "empty_batch" });
     return formatRejectedAggregate("empty batch; items array must be non-empty");
   }
 
@@ -215,6 +228,7 @@ export const executeFanout = async (
   // --- Caller must have a parent (workers are siblings of the caller, not children) ---
   const rootSid = ctx.sessionStore.parentOf(callerSid);
   if (!rootSid) {
+    log.warn({ event: "fanout.batch_rejected", reason: "caller_is_root" });
     return formatRejectedAggregate(
       "caller is root session; fanout workers require a parent session",
     );
@@ -222,6 +236,7 @@ export const executeFanout = async (
 
   // --- Batch-level cap ---
   if (args.items.length > effectiveCfg.maxWorkersPerBatch) {
+    log.warn({ event: "fanout.batch_rejected", reason: "batch_size_exceeded", items: args.items.length, maxWorkersPerBatch: effectiveCfg.maxWorkersPerBatch });
     return formatRejectedAggregate(
       `items.length ${args.items.length} > maxWorkersPerBatch ${effectiveCfg.maxWorkersPerBatch}`,
     );
@@ -271,10 +286,21 @@ export const executeFanout = async (
       .filter((r) => !r.slotAcquired)
       .map((r) => `${r.item.tier}: ${r.reason}`)
       .join("; ");
+    log.warn({ event: "fanout.batch_rejected", reason: "all_slots_rejected", detail: reason });
     return formatRejectedAggregate(`all fanout slots rejected: ${reason}`);
   }
 
-  // --- Caller abort: abort all outstanding workers and return "" silently ---
+  // --- Batch started (telemetry) ---
+  log.info({
+    event: "fanout.batch_started",
+    callerSid,
+    items: args.items.length,
+    maxConcurrentGlobal: effectiveCfg.maxConcurrentGlobal,
+  });
+
+  // --- Caller abort: abort all outstanding workers and return "" silently (W-1) ---
+  // Mirrors delegate.ts cancellation contract: signal firing mid-batch means the caller
+  // cancelled, so we abort in-flight workers and return "" without an aggregate.
   if (signal?.aborted) {
     return "";
   }
@@ -396,6 +422,7 @@ export const executeFanout = async (
           );
           const text = extractPromptText(res);
           workerSucceeded = true;
+          log.info({ event: "fanout.worker_completed", sid: workerSid, tier: item.tier });
           return { index: idx, tier: item.tier, status: "completed", text };
         } catch (err) {
           if (
@@ -411,6 +438,7 @@ export const executeFanout = async (
           }
           // Timeout: withTimeout throws Error("... timed out after Nms")
           if (err instanceof Error && err.message.includes("timed out")) {
+            log.info({ event: "fanout.worker_timed_out", sid: workerSid, tier: item.tier });
             return {
               index: idx,
               tier: item.tier,
@@ -418,6 +446,13 @@ export const executeFanout = async (
               reason: `worker exceeded ${effectiveCfg.workerTimeoutMs}ms; abort attempted`,
             };
           }
+          // Non-retryable prompt error — non-qualifying failure
+          log.warn({
+            event: "fanout.worker_failed",
+            sid: workerSid,
+            tier: item.tier,
+            error: err instanceof Error ? err.message : String(err),
+          });
           return {
             index: idx,
             tier: item.tier,
@@ -434,6 +469,16 @@ export const executeFanout = async (
       releaseFanoutSlot(ctx, item.tier);
     }
   });
+
+  // --- Track circuit state before batch (for telemetry) ---
+  const preBreakerState = ctx.fanoutStore.breakerState();
+
+  // --- W-1: Mid-batch cancellation check ---
+  // Check signal BEFORE racing workers — if already aborted at this point,
+  // abort all outstanding workers and return "" silently (per delegate.ts contract).
+  if (signal?.aborted) {
+    return "";
+  }
 
   // --- Race all workers against batchTimeoutMs ---
   let batchTimedOut = false;
@@ -465,15 +510,57 @@ export const executeFanout = async (
     };
   });
 
-  // Record batch outcome for breaker
-  const hasFailure = items.some(
-    (r) => r.status === "failed" || r.status === "timed_out" || r.status === "cancelled",
-  );
-  if (hasFailure) {
+  // --- Circuit state telemetry ---
+  const postBreakerState = ctx.fanoutStore.breakerState();
+  if (postBreakerState !== preBreakerState) {
+    if (postBreakerState === "open") {
+      log.info({ event: "fanout.circuit_open" });
+    } else if (postBreakerState === "half_open") {
+      log.info({ event: "fanout.circuit_half_open" });
+    } else if (postBreakerState === "closed" && preBreakerState !== "closed") {
+      log.info({ event: "fanout.circuit_close" });
+    }
+  }
+
+  // --- Record batch outcome for breaker (R-4: D-3 qualification) ---
+  // Only qualifying failures increment the streak; non-qualifying reset it.
+  // Call recordOutcome ONCE per batch with the worst outcome.
+  const hasTimedOut = items.some((r) => r.status === "timed_out");
+  const hasFailed = items.some((r) => r.status === "failed"); // non-retryable prompt error
+  const hasCancelled = items.some((r) => r.status === "cancelled");
+  const hasRejected = items.some((r) => r.status === "rejected");
+
+  if (hasTimedOut) {
+    // Qualifying: worker exceeded workerTimeoutMs
+    ctx.fanoutStore.recordOutcome("timed_out");
+  } else if (hasFailed) {
+    // Non-qualifying: non-retryable prompt error — resets streak in closed
     ctx.fanoutStore.recordOutcome("failed");
+  } else if (hasCancelled) {
+    // Non-qualifying: caller signal — resets streak in closed
+    ctx.fanoutStore.recordOutcome("cancelled");
+  } else if (hasRejected) {
+    // Non-qualifying: per-item policy rejection — resets streak in closed
+    ctx.fanoutStore.recordOutcome("rejected");
   } else if (items.every((r) => r.status === "completed")) {
     ctx.fanoutStore.recordOutcome("completed");
   }
+
+  // --- batch_completed telemetry ---
+  const completedCount = items.filter((r) => r.status === "completed").length;
+  const failedCount = items.filter((r) => r.status === "failed").length;
+  const timedOutCount = items.filter((r) => r.status === "timed_out").length;
+  const cancelledCount = items.filter((r) => r.status === "cancelled").length;
+  const rejectedCount = items.filter((r) => r.status === "rejected").length;
+  log.info({
+    event: "fanout.batch_completed",
+    items: items.length,
+    completed: completedCount,
+    failed: failedCount,
+    timed_out: timedOutCount,
+    cancelled: cancelledCount,
+    rejected: rejectedCount,
+  });
 
   // Format aggregate
   if (items.length === 0) {

@@ -178,12 +178,17 @@ describe("createFanoutStore", () => {
       expect(store.breakerState()).toBe("open");
     });
 
-    it("completed outcome does NOT trip the breaker", () => {
+    it("completed outcome does NOT trip the breaker (D-3: non-qualifying, resets streak in closed)", () => {
+      // Per D-3: completed is non-qualifying and resets the streak in closed state.
+      // Therefore interleaving completed with timed_out prevents the breaker from tripping.
       const { failureThreshold } = DEFAULT_FANOUT_CONFIG.breaker;
 
+      // Each timed_out increments, but the following completed resets to 0.
       for (let i = 0; i < failureThreshold * 2; i++) {
+        store.recordOutcome("timed_out");
         store.recordOutcome("completed");
       }
+      // Streak never accumulates past 1, so breaker stays closed.
       expect(store.breakerState()).toBe("closed");
     });
 
@@ -312,15 +317,18 @@ describe("createFanoutStore", () => {
       expect(store.breakerState()).toBe("closed");
     });
 
-    it("completed does not break the failure streak", () => {
+    it("completed resets the failure streak in closed state (D-3)", () => {
+      // Per D-3: completed is non-qualifying and resets the streak in closed state.
+      // Interleaving completed with timed_out prevents the streak from accumulating.
       const { failureThreshold } = DEFAULT_FANOUT_CONFIG.breaker;
 
-      // Interleaving completed doesn't prevent tripping
+      // Each timed_out increments, but the following completed resets to 0.
       for (let i = 0; i < failureThreshold * 2; i++) {
         store.recordOutcome("timed_out");
         store.recordOutcome("completed");
       }
-      expect(store.breakerState()).toBe("open");
+      // Streak never accumulates past 1, so breaker stays closed.
+      expect(store.breakerState()).toBe("closed");
     });
   });
 

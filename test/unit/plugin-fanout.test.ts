@@ -1109,13 +1109,13 @@ describe("executeFanout — telemetry emissions", () => {
     vi.restoreAllMocks();
   });
 
-  it("fanout.worker_cleanup_failed fires when session.abort throws", async () => {
+  it("fanout.abort_failed fires when session.abort throws (W-2)", async () => {
     const { ctx } = makeCtx({
       callerTier: "heavy",
       callerDepth: 1,
       parentSid: "root-sid",
     });
-    // Make session.abort reject → cleanupWorkerSession catches and logs warning
+    // Make session.abort reject → cleanupWorkerSession catches and logs abort_failed (W-2)
     ctx.plugin.client.session.abort = async () => {
       throw new Error("abort failed");
     };
@@ -1131,12 +1131,12 @@ describe("executeFanout — telemetry emissions", () => {
       undefined as any,
     );
 
-    // Should have logged a worker_cleanup_failed warning
+    // Should have logged abort_failed warning (W-2)
     const warnCalls = (console.warn as ReturnType<typeof vi.fn>).mock.calls;
-    const cleanupFailed = warnCalls.some(
-      (call) => typeof call[0] === "string" && call[0].includes("fanout.worker_cleanup_failed"),
+    const abortFailed = warnCalls.some(
+      (call) => typeof call[0] === "string" && call[0].includes("fanout.abort_failed"),
     );
-    expect(cleanupFailed).toBe(true);
+    expect(abortFailed).toBe(true);
   });
 
   it("fanout.worker_register_failed fires when registerProducerSession throws", async () => {

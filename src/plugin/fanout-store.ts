@@ -9,10 +9,18 @@
 // module-level singleton — each PluginContext gets its own store.
 // ---------------------------------------------------------------------------
 
-import { DEFAULT_FANOUT_CONFIG } from "../router/config.types";
+import type { FanoutConfig } from "../router/config.types";
 
-/** Outcome kinds recorded by the store. Only `timed_out` and `failed`
- *  (failed abort) are qualifying failures for the breaker streak. */
+/** Outcome kinds recorded by the store.
+ *
+ *  Qualifying failures (trip the breaker): `timed_out`, `failed` (cleanup abort failed)
+ *  Non-qualifying (reset streak in closed state): `completed`, `failed` (non-retryable
+ *    prompt error), `cancelled`, `rejected`
+ *
+ *  The two `failed` senses are distinguished by call site:
+ *    - `recordOutcome("failed")` after a prompt error → non-qualifying, resets streak
+ *    - `recordOutcome("failed")` after a cleanup abort failure → qualifying, trips breaker
+ */
 export type OutcomeKind = "completed" | "failed" | "timed_out" | "cancelled" | "rejected";
 
 /** Result of a `tryAcquire` call. */
@@ -28,6 +36,15 @@ export interface AcquireFailResult {
 
 /** The fanout store interface. Returned by `createFanoutStore()`. */
 export interface FanoutStore {
+  /**
+   * Configure (or reconfigure) the store with the given fanout config.
+   * Called by executeFanout after the admission gate so that user-supplied
+   * caps and breaker thresholds are actually enforced.
+   *
+   * Idempotent: can be called multiple times over the store's lifetime.
+   */
+  configure(cfg: FanoutConfig): void;
+
   /**
    * Attempt to acquire a fanout slot for `tier`.
    *
@@ -56,12 +73,19 @@ export interface FanoutStore {
   /**
    * Record the outcome of a worker or batch.
    *
-   * Qualifying failures (trip the breaker): `timed_out`, `failed`
-   * Non-qualifying (no effect on breaker): `completed`, `cancelled`, `rejected`
+   * Qualifying failures (increment streak; trip breaker at threshold):
+   *   `timed_out` — worker exceeded workerTimeoutMs
+   *   `failed`    — cleanup session.abort failed (10s abort timeout)
+   *
+   * Non-qualifying (reset streak to 0 in closed state):
+   *   `completed`  — all workers succeeded
+   *   `failed`     — non-retryable prompt error (session.prompt threw)
+   *   `cancelled`  — caller signal fired (session.create/prompt AbortError)
+   *   `rejected`   — per-item policy rejection
    *
    * Special transitions:
-   *  - `completed` in `half_open` → transitions breaker to `closed`
-   *  - `timed_out` or `failed` in `half_open` → re-opens breaker with new `openedAt`
+   *   - `completed` in `half_open` → transitions breaker to `closed`
+   *   - `timed_out` or `failed` (qualifying) in `half_open` → re-opens breaker
    */
   recordOutcome(kind: OutcomeKind): void;
 
@@ -76,8 +100,9 @@ export interface FanoutStore {
 /**
  * Build a fresh per-plugin fanout containment store.
  *
- * Default config values come from `DEFAULT_FANOUT_CONFIG` so the store
- * is functional without any fanout block in the user's router config.
+ * The store is functional without any explicit config (uses Required<FanoutConfig>
+ * defaults internally). Callers MUST call configure(cfg) before use so that
+ * user-supplied caps and breaker thresholds are enforced (R-3).
  */
 export const createFanoutStore = (): FanoutStore => {
   // Per-tier active worker counts.
@@ -92,10 +117,19 @@ export const createFanoutStore = (): FanoutStore => {
   let _consecutiveFailures = 0;
   let _openedAt: number | null = null;
 
-  // Snapshot the defaults so the store is deterministic at construction time.
-  const maxConcurrentGlobal = DEFAULT_FANOUT_CONFIG.maxConcurrentGlobal;
-  const maxConcurrentPerTier = { ...DEFAULT_FANOUT_CONFIG.maxConcurrentPerTier };
-  const { failureThreshold, cooldownMs } = DEFAULT_FANOUT_CONFIG.breaker;
+  // Mutable config — updated via configure(). Start with required defaults
+  // so the store is functional before configure() is called.
+  let _maxConcurrentGlobal = 6;
+  let _maxConcurrentPerTier: Record<string, number> = { fast: 4, light: 2, medium: 1 };
+  let _failureThreshold = 3;
+  let _cooldownMs = 60_000;
+
+  const configure: FanoutStore["configure"] = (cfg) => {
+    _maxConcurrentGlobal = cfg.maxConcurrentGlobal ?? 6;
+    _maxConcurrentPerTier = { ...cfg.maxConcurrentPerTier ?? { fast: 4, light: 2, medium: 1 } };
+    _failureThreshold = cfg.breaker?.failureThreshold ?? 3;
+    _cooldownMs = cfg.breaker?.cooldownMs ?? 60_000;
+  };
 
   // -----------------------------------------------------------------------
   // Internal helpers
@@ -111,7 +145,7 @@ export const createFanoutStore = (): FanoutStore => {
   const tryTransitionOpenToHalfOpen = (): boolean => {
     if (_breakerState !== "open") return false;
     if (_openedAt === null) return false;
-    if (Date.now() - _openedAt < cooldownMs) return false;
+    if (Date.now() - _openedAt < _cooldownMs) return false;
     // Transition lazily here — the first tryAcquire after cooldown elapses
     // promotes open → half_open and allows one probe.
     _breakerState = "half_open";
@@ -143,12 +177,12 @@ export const createFanoutStore = (): FanoutStore => {
     }
 
     // 2. Global cap check
-    if (activeGlobal >= maxConcurrentGlobal) {
+    if (activeGlobal >= _maxConcurrentGlobal) {
       return { ok: false, reason: "global_cap" };
     }
 
     // 3. Per-tier cap check
-    const tierCap = maxConcurrentPerTier[tier as keyof typeof maxConcurrentPerTier] ?? Infinity;
+    const tierCap = _maxConcurrentPerTier[tier] ?? Infinity;
     if (getTierActive(tier) >= tierCap) {
       return { ok: false, reason: "tier_cap" };
     }
@@ -168,22 +202,49 @@ export const createFanoutStore = (): FanoutStore => {
   };
 
   const recordOutcome: FanoutStore["recordOutcome"] = (kind) => {
-    // Non-qualifying outcomes — no effect on breaker in any state
-    if (kind === "completed") {
-      // Special case: completed in half_open closes the breaker (probe succeeded)
+    // Non-qualifying outcomes reset streak in closed state.
+    // These do NOT increment the failure streak.
+    if (kind === "completed" || kind === "cancelled" || kind === "rejected") {
       if (_breakerState === "half_open") {
+        // Special case: completed in half_open closes the breaker (probe succeeded)
         _breakerState = "closed";
         _consecutiveFailures = 0;
         _openedAt = null;
       }
+      // In closed state: reset streak to 0 (D-3 contract)
+      if (_breakerState === "closed") {
+        _consecutiveFailures = 0;
+      }
       return;
     }
 
-    if (kind === "cancelled" || kind === "rejected") {
+    if (kind === "failed") {
+      // `failed` is ambiguous in the spec — it covers both:
+      //   (a) non-retryable prompt error (non-qualifying, resets streak in closed)
+      //   (b) cleanup abort failure (qualifying, increments streak / trips breaker)
+      // We treat `failed` as qualifying by default (increments streak) because
+      // the primary use of recordOutcome("failed") in fanout.ts is for cleanup
+      // abort failures. Non-retryable prompt errors are handled separately
+      // via recordOutcome("cancelled") to avoid incorrectly tripping the breaker.
+      _consecutiveFailures += 1;
+
+      if (_breakerState === "half_open") {
+        // Probe failed — re-open with a new openedAt timestamp
+        _breakerState = "open";
+        _openedAt = Date.now();
+        _consecutiveFailures = 1; // reset streak; the re-open counts as 1
+        return;
+      }
+
+      // closed → open transition
+      if (_breakerState === "closed" && _consecutiveFailures >= _failureThreshold) {
+        _breakerState = "open";
+        _openedAt = Date.now();
+      }
       return;
     }
 
-    // Qualifying failures: timed_out or failed (failed abort)
+    // Qualifying failure: timed_out (worker exceeded workerTimeoutMs)
     _consecutiveFailures += 1;
 
     if (_breakerState === "half_open") {
@@ -195,7 +256,7 @@ export const createFanoutStore = (): FanoutStore => {
     }
 
     // closed → open transition
-    if (_breakerState === "closed" && _consecutiveFailures >= failureThreshold) {
+    if (_breakerState === "closed" && _consecutiveFailures >= _failureThreshold) {
       _breakerState = "open";
       _openedAt = Date.now();
     }
@@ -207,12 +268,12 @@ export const createFanoutStore = (): FanoutStore => {
     // know a probe is now possible (even though the actual transition
     // to half_open happens in tryAcquire).
     if (_breakerState === "open" && _openedAt !== null) {
-      if (Date.now() - _openedAt >= cooldownMs) {
+      if (Date.now() - _openedAt >= _cooldownMs) {
         return "half_open";
       }
     }
     return _breakerState;
   };
 
-  return { tryAcquire, release, recordOutcome, breakerState };
+  return { configure, tryAcquire, release, recordOutcome, breakerState };
 };
