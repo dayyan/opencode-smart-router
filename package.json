@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:gate": "vitest run --coverage",
+    "test:res": "echo 'no rescript tests'",
     "smoke": "cross-env RUN_OC_SMOKE=1 vitest run --config vitest.smoke.config.ts test/smoke",
     "typecheck": "tsc --noEmit",
     "lint": "biome check",
