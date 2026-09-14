@@ -40,6 +40,7 @@ The plugin registers five tiers — `@fast`, `@light`, `@medium`, `@focused`, `@
   - [Slash commands](#slash-commands)
   - [The `delegate` tool](#the-delegate-tool)
 - [Delegation enforcement](#delegation-enforcement)
+- [Child-initiated fan-out (`fanout` tool)](#child-initiated-fan-out-fanout-tool)
 - [Deep-dive documentation](#deep-dive-documentation)
 - [Plan annotation](#plan-annotation)
 - [Token overhead](#token-overhead)
@@ -897,6 +898,43 @@ Advisory is the default. To change the level:
 **Modes:** `off` — no-op, byte-for-byte-unchanged routing; `advisory` (default) — evaluates and surfaces guidance, never blocks; `enforced` — hard-blocks active, full produce → verify → accept/escalate pipeline.
 
 > Enforcement applies to subagent/delegate sessions only. The orchestrator session is never hard-blocked.
+
+## Child-initiated fan-out (`fanout` tool)
+
+The `fanout` tool lets a medium, focused, or heavy tier spawn multiple **parallel sibling workers** under its own parent session — without escalating to the orchestrator. Workers run as depth-1 children of the orchestrator (never grandchildren), in parallel, each completing a bounded read-only task independently.
+
+**Purpose:** offload lower-value work (parallel searches, fact-checking, sub-task parallelization) from medium/focused/heavy to cheaper tiers, at lower total cost than sequential dispatches.
+
+### Policy matrix
+
+| Caller tier | Can fan out? | Allowed worker tiers |
+|---|---|---|
+| `@medium` | Yes | `@fast` |
+| `@focused` | Yes | `@fast`, `@light`, `@medium` |
+| `@heavy` | Yes | `@fast`, `@light`, `@medium` |
+| `@fast` | No | — |
+| `@light` | No | — |
+
+**Additional constraints:** fanout is blocked for fanout workers (prevents nested fanout), producer sessions (delegate-origin), grader sessions, and the orchestrator (depth-0 uses task/delegate instead).
+
+**Example call:**
+
+```text
+fanout(items: [
+  { tier: "fast", prompt: "grep for auth middleware in src/" },
+  { tier: "fast", prompt: "git log --oneline -20 src/auth" }
+])
+```
+
+Workers run in parallel. Results are aggregated as `## [n] tier=<t> status=<s>` in the caller's response. Workers are parented to the **orchestrator** (root), not to the caller — enforcing the no-grandchild invariant.
+
+### Configuration
+
+The `fanout` block in `tiers.json` controls capacity, timeouts, and the circuit breaker. See [docs/CONFIG_REFERENCE.md](./docs/CONFIG_REFERENCE.md) for the full reference.
+
+### Limitations
+
+Fanout provides **bounded response** — the batch has a `batchTimeoutMs` cap and individual workers have a `workerTimeoutMs` cap. A stuck SDK call may linger after the timeout; the worker is marked `timed_out` but the underlying process is not hard-killed. Hard process-isolated termination is a future plan.
 
 ## Deep-dive documentation
 

@@ -155,6 +155,45 @@ All fields are optional. A config with no `reasoningPolicy` block and no per-tie
 
 ---
 
+## `fanout`
+
+Optional top-level block enabling the child-initiated fan-out tool (`fanout`). When absent, the tool is hidden from the runtime tool list.
+
+### Policy
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `enabled` | `boolean` | `false` | Set `true` to activate the fanout tool. |
+| `maxConcurrentGlobal` | `number` | `10` | Max parallel workers across all tiers per orchestrator session. |
+| `maxConcurrentPerTier` | `Record<string,number>` | `{fast:5,light:5,medium:5}` | Per-tier worker cap. |
+| `batchTimeoutMs` | `number` | `30000` | Max time for the entire batch; completed workers are kept. |
+| `workerTimeoutMs` | `number` | `15000` | Max time per individual worker. |
+| `breaker.failureThreshold` | `number` | `5` | Consecutive qualifying failures (`timed_out` or failed abort) before opening the circuit. |
+| `breaker.cooldownMs` | `number` | `60000` | Time before attempting a probe call after opening. |
+
+### Strict `maxConcurrentPerTier` key validation
+
+The `maxConcurrentPerTier` keys are validated against the **active preset's tier set** at config load time. Only keys in `activePreset ∩ {fast, light, medium}` are allowed; unknown keys (e.g. `focused` or `heavy`) produce a typed config-load error. This prevents operator typos from silently falling through to a default.
+
+### Minimal example
+
+```jsonc
+{
+  "fanout": {
+    "enabled": true,
+    "maxConcurrentGlobal": 10,
+    "maxConcurrentPerTier": { "fast": 5, "light": 5, "medium": 5 },
+    "batchTimeoutMs": 30000,
+    "workerTimeoutMs": 15000,
+    "breaker": { "failureThreshold": 5, "cooldownMs": 60000 }
+  }
+}
+```
+
+All fields are optional. An empty `{}` or omitted block is a no-op (tool hidden).
+
+---
+
 ## Env-gate truth table
 
 Env var name: value of `enforcement.envGate` (default `MODEL_ROUTER_ENFORCE`).  
@@ -186,6 +225,7 @@ Evaluated by `resolveEnforcementMode` on every dispatch.
 | `perTier` values must each be `off \| advisory \| enforced`. |
 | `guard.budget` must be a number ≥ 1. |
 | `guard.blockScriptWrites` must be a boolean. |
+| `fanout.maxConcurrentPerTier` keys must all be in `activePreset ∩ {fast, light, medium}`; unknown keys produce a typed config-load error. |
 
 ---
 
