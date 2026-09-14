@@ -71,6 +71,7 @@ it is unplanned, not rejected on merit.
 | 038  | Make the delegate path honor per-tier reasoning ownership | P1 | S–M | LOW | — | DONE (branch `advisor/038-foreground` @ `9e795bb`; worktree `/tmp/opencode/smart-router-038fg`) |
 | 039  | Make escalation-ladder attempt semantics truthful | P1 | S | LOW | 038 (same-file sequencing) | DONE (branch `advisor/039-foreground` stacked on 038: `7b55214` + `b174518`; worktree `/tmp/opencode/smart-router-039fg`) |
 | 040  | Document the reasoning-bump escalation ladder (1.9.0 feature) | P2 | S | LOW | 039 (wording source) | DONE (branch `advisor/040-foreground` @ `cf5b79a`; worktree `/tmp/opencode/smart-router-040fg`) |
+| 044  | Child-initiated fan-out (fanout tool) | P1 | L | MED | — | DONE (6 stacked PRs on `advisor/044-tier-fanout-tool`; PR 5 integration + prompts + docs) |
 
 **Dependency / ordering:**
 
