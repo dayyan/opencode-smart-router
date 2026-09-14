@@ -193,7 +193,10 @@ export const executeFanout = async (
     return formatRejectedAggregate("fanout disabled (kill switch)");
   }
 
-  if (ctx.fanoutStore.breakerState() !== "closed") {
+  // Breaker FSM: reject only when explicitly `open`. `half_open` admits a
+  // single probe batch (the design's recovery contract); `closed` admits
+  // normally.
+  if (ctx.fanoutStore.breakerState() === "open") {
     return formatRejectedAggregate("circuit breaker open");
   }
 
