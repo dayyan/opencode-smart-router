@@ -25,6 +25,7 @@ import type { Preset } from "../router/config";
 import { log, logEvent } from "../utils/observability";
 import type { PluginContext } from "./context";
 import { executeDelegate } from "./delegate";
+import { executeFanout } from "./fanout";
 import {
   handleChatMessage,
   handleChatParams,
@@ -35,10 +36,13 @@ import {
   handleToolExecuteAfter,
   handleToolExecuteBefore,
 } from "./hooks";
-import type { DelegateArgs, HookEventPayload, HookPayload } from "./types";
+import type { DelegateArgs, FanoutArgs, HookEventPayload, HookPayload } from "./types";
 
 const DELEGATE_DESCRIPTION =
   "Delegate a task to a tier subagent (fast | medium | heavy). The subagent's result is INDEPENDENTLY VERIFIED (deterministic checks, or an independent grader at >= the producer tier in a fresh session) before it is returned. Returns an accepted result on PASS, or an honest 'unmet' status on FAIL — never a self-reported completion. Optionally pass an [acceptance]...[/acceptance] block to define the Definition of Done.";
+
+const FANOUT_DESCRIPTION =
+  "Delegate a batch of bounded lower-tier worker tasks in parallel from a depth-1 medium/focused/heavy caller. Workers are root-session siblings (never nested under the caller). Caller tier policy: medium->fast; focused/heavy->fast|light|medium. fast/light cannot call this tool. The plugin owns deadlines, cancellation, and cleanup.";
 
 // ---------------------------------------------------------------------------
 // Typed hook wrapper lambdas.
@@ -104,6 +108,32 @@ export const assembleRuntimeHooks = (
               },
               async execute(args: DelegateArgs, context: ToolContext): Promise<string> {
                 return executeDelegate(ctx, args, context.sessionID, context.abort);
+              },
+            }),
+          }
+        : {}),
+      ...(ctx.initialConfig.fanout?.enabled === true
+        ? {
+            fanout: tool({
+              description: FANOUT_DESCRIPTION,
+              args: {
+                items: tool.schema
+                  .array(
+                    tool.schema.object({
+                      tier: tool.schema
+                        .string()
+                        .describe(
+                          "fast | light | medium. Must be an allowed worker tier for the caller.",
+                        ),
+                      prompt: tool.schema.string().describe("The lower-value work for the worker."),
+                    }),
+                  )
+                  .describe(
+                    "Array of {tier, prompt} items to run concurrently. Empty array is rejected with no SDK calls.",
+                  ),
+              },
+              async execute(args: FanoutArgs, context: ToolContext): Promise<string> {
+                return executeFanout(ctx, args, context.sessionID, context.abort);
               },
             }),
           }

@@ -215,3 +215,39 @@ export interface CommandExecuteInput {
 export interface CommandExecuteOutput {
   parts: Array<{ type: "text"; text: string }>;
 }
+
+// ---------------------------------------------------------------------------
+// Fanout tool args and outcome types (PR 044)
+// ---------------------------------------------------------------------------
+
+/**
+ * User-facing args for the fanout tool.
+ * items: array of {tier, prompt} to run concurrently as root-session siblings.
+ */
+export interface FanoutArgs {
+  items: Array<{ tier: string; prompt: string }>;
+}
+
+/**
+ * Per-worker outcome kinds recorded by the fanout executor.
+ * Mirrors FanoutStore.OutcomeKind from fanout-store.ts.
+ */
+export type FanoutWorkerStatus = "completed" | "failed" | "timed_out" | "cancelled" | "rejected";
+
+/**
+ * Per-worker typed result (for PR 3b; stub returns the rejection variant only).
+ */
+export interface FanoutItemResult {
+  index: number;
+  tier: string;
+  status: FanoutWorkerStatus;
+  text?: string;
+  reason?: string;
+}
+
+/**
+ * Aggregate result across all workers (for PR 3b).
+ */
+export interface FanoutAggregate {
+  items: FanoutItemResult[];
+}

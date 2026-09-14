@@ -7,19 +7,28 @@ import { createFanoutStore } from "../../src/plugin/fanout-store";
 import { createReasoningStore } from "../../src/reasoning/store";
 import type { RouterConfig } from "../../src/router/config";
 
-// ---------------------------------------------------------------------------
-// Fanout admission contract tests.
-//
-// Tests exercise the admission gate of `executeFanout` in the stub阶段.
-// The stub implements the admission gate (depth/tier/producer/grader/worker/
-// breaker/empty checks) and returns a typed `rejected` aggregate for every
-// non-passing case. All tests assert that SDK calls (session.create) are NEVER
-// made when the admission gate rejects.
-//
-// PR 3a: stub executor only — real executor is PR 3b.
-// ---------------------------------------------------------------------------
-
-// executeFanout is imported inside each test (deferred import for RED phase)
+const BASE_CONFIG: RouterConfig = {
+  activePreset: "default",
+  defaultTier: "fast",
+  presets: {
+    default: {
+      fast: { model: "a", description: "f", whenToUse: [], costRatio: 1 },
+      light: { model: "a", description: "l", whenToUse: [], costRatio: 1 },
+      medium: { model: "b", description: "m", whenToUse: [], costRatio: 3 },
+      heavy: { model: "c", description: "h", whenToUse: [], costRatio: 9 },
+    },
+  },
+  rules: [],
+  fanout: {
+    enabled: true,
+    maxWorkersPerBatch: 4,
+    maxConcurrentGlobal: 6,
+    maxConcurrentPerTier: { fast: 4, light: 2, medium: 1 },
+    workerTimeoutMs: 120000,
+    batchTimeoutMs: 180000,
+    breaker: { failureThreshold: 3, cooldownMs: 60000 },
+  },
+};
 
 let tmpHome: string;
 let tmpCwd: string;
@@ -31,15 +40,10 @@ beforeEach(() => {
   origHOME = process.env["HOME"];
   origUSERPROFILE = process.env["USERPROFILE"];
   origCwd = process.cwd();
-
-  tmpHome = join(
-    tmpdir(),
-    `oc-fanout-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
+  tmpHome = join(tmpdir(), `oc-fanout-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   mkdirSync(tmpHome, { recursive: true });
   process.env["HOME"] = tmpHome;
   process.env["USERPROFILE"] = tmpHome;
-
   tmpCwd = join(tmpHome, "cwd");
   mkdirSync(tmpCwd, { recursive: true });
   process.chdir(tmpCwd);
@@ -54,18 +58,9 @@ afterEach(() => {
   try {
     rmSync(tmpHome, { recursive: true, force: true });
   } catch {
-    // ignore
+    /* ignore */
   }
 });
-
-// ---------------------------------------------------------------------------
-// Fake PluginContext builder — mirrors plugin-delegate.test.ts makeCtx pattern.
-// ---------------------------------------------------------------------------
-
-interface SessionCall {
-  sessionID: string;
-  promptText?: string;
-}
 
 const makeCtx = (opts: {
   callerSid?: string;
@@ -76,108 +71,39 @@ const makeCtx = (opts: {
   isFanoutWorker?: boolean;
   fanoutEnabled?: boolean;
   breakerState?: "closed" | "open" | "half_open";
-  createImpl?: (req: any) => Promise<any>;
-  promptImpl?: (req: any) => Promise<any>;
-  abortImpl?: (req: any) => Promise<any>;
-  deleteImpl?: (req: any) => Promise<any>;
-}): {
-  ctx: PluginContext;
-  sessions: SessionCall[];
-  createSpy: ReturnType<typeof vi.fn>;
-} => {
-  const sessions: SessionCall[] = [];
-  let createSeq = 0;
-  const createSpy = vi.fn().mockImplementation(
-    opts.createImpl ??
-      (async () => {
-        const id = `sess_${++createSeq}`;
-        sessions.push({ sessionID: id });
-        return { data: { id } };
-      }),
-  );
-
-  const baseConfig: RouterConfig = {
-    activePreset: "default",
-    defaultTier: "fast",
-    presets: {
-      default: {
-        fast: {
-          model: "anthropic/claude-haiku-4-5",
-          description: "fast",
-          whenToUse: [],
-          costRatio: 1,
-        },
-        light: {
-          model: "anthropic/claude-haiku-4-5",
-          description: "light",
-          whenToUse: [],
-          costRatio: 1,
-        },
-        medium: {
-          model: "anthropic/claude-sonnet-4",
-          description: "medium",
-          whenToUse: [],
-          costRatio: 3,
-        },
-        heavy: {
-          model: "anthropic/claude-opus-4",
-          description: "heavy",
-          whenToUse: [],
-          costRatio: 9,
-        },
-      },
-    },
-    rules: [],
-    fanout: {
-      enabled: opts.fanoutEnabled ?? true,
-      maxWorkersPerBatch: 4,
-      maxConcurrentGlobal: 6,
-      maxConcurrentPerTier: { fast: 4, light: 2, medium: 1 },
-      workerTimeoutMs: 120000,
-      batchTimeoutMs: 180000,
-      breaker: { failureThreshold: 3, cooldownMs: 60000 },
-    },
+}) => {
+  const createSpy = vi.fn().mockResolvedValue({ data: { id: "sess_1" } });
+  const cfg: RouterConfig = {
+    ...BASE_CONFIG,
+    fanout: { ...BASE_CONFIG.fanout, enabled: opts.fanoutEnabled ?? true },
   };
-
   const callerSid = opts.callerSid ?? "caller-sid-1";
   const callerDepth = opts.callerDepth ?? 1;
   const callerTier = opts.callerTier ?? "medium";
-
   const fanoutStore = createFanoutStore();
-  // Set breaker state if needed
   if (opts.breakerState === "open") {
-    // Trip the breaker
     fanoutStore.recordOutcome("failed");
     fanoutStore.recordOutcome("failed");
     fanoutStore.recordOutcome("failed");
   }
-
   const ctx: PluginContext = {
     plugin: {
       directory: tmpCwd,
       client: {
         session: {
           create: createSpy,
-          prompt:
-            opts.promptImpl ??
-            (async (req: any) => {
-              const id = req?.path?.id ?? "?";
-              const text = req?.body?.parts?.[0]?.text ?? "(no text)";
-              const last = sessions.find((s) => s.sessionID === id);
-              if (last) last.promptText = text;
-              return { data: { parts: [{ type: "text", text: "done." }] } };
-            }),
-          abort: opts.abortImpl ?? vi.fn().mockResolvedValue(undefined),
-          delete: opts.deleteImpl ?? vi.fn().mockResolvedValue(undefined),
+          prompt: async () => ({ data: { parts: [{ type: "text", text: "done." }] } }),
+          abort: vi.fn().mockResolvedValue(undefined),
+          delete: vi.fn().mockResolvedValue(undefined),
         },
       },
     } as any,
-    initialConfig: baseConfig,
-    activeTiersAtLoad: baseConfig.presets["default"]!,
-    getConfig: async () => baseConfig,
-    refreshConfig: async () => baseConfig,
+    initialConfig: cfg,
+    activeTiersAtLoad: cfg.presets["default"]!,
+    getConfig: async () => cfg,
+    refreshConfig: async () => cfg,
     async getFreshConfig() {
-      return baseConfig;
+      return cfg;
     },
     dispose: async () => {},
     state: { bypassed: false, cleanupTasks: [], shutdownStarted: false },
@@ -209,187 +135,107 @@ const makeCtx = (opts: {
     seams: { exec: {} as any, fs: {} as any },
     fanoutStore,
   };
-
-  return { ctx, sessions, createSpy };
+  return { ctx, createSpy };
 };
-
-// ---------------------------------------------------------------------------
-// Helper: call executeFanout with given args and callerSid
-// ---------------------------------------------------------------------------
-
-// We need to import executeFanout from fanout.ts but it doesn't exist yet.
-// For RED phase, we write tests that reference the module that will exist.
-
-const importExecuteFanout = async () => {
-  const mod = await import("../../src/plugin/fanout");
-  return mod.executeFanout;
-};
-
-// ---------------------------------------------------------------------------
-// Test: Policy matrix — denied edges
-// ---------------------------------------------------------------------------
 
 describe("executeFanout — policy matrix denied edges", () => {
-  it("fast caller → rejected, no SDK calls", async () => {
-    const { ctx, createSpy } = makeCtx({ callerTier: "fast", callerDepth: 1 });
-    const executeFanout = await importExecuteFanout();
-    const out = await executeFanout(
-      ctx,
-      { items: [{ tier: "fast", prompt: "do work" }] },
-      "caller-sid",
-      undefined as any,
-    );
-    expect(out).toContain("rejected");
-    expect(createSpy).not.toHaveBeenCalled();
-  });
-
-  it("light caller → rejected, no SDK calls", async () => {
-    const { ctx, createSpy } = makeCtx({ callerTier: "light", callerDepth: 1 });
-    const executeFanout = await importExecuteFanout();
-    const out = await executeFanout(
-      ctx,
-      { items: [{ tier: "fast", prompt: "do work" }] },
-      "caller-sid",
-      undefined as any,
-    );
-    expect(out).toContain("rejected");
-    expect(createSpy).not.toHaveBeenCalled();
-  });
-
-  it("medium caller → light worker rejected (medium→light not allowed)", async () => {
-    const { ctx, createSpy } = makeCtx({ callerTier: "medium", callerDepth: 1 });
-    const executeFanout = await importExecuteFanout();
-    const out = await executeFanout(
-      ctx,
-      { items: [{ tier: "light", prompt: "do work" }] },
-      "caller-sid",
-      undefined as any,
-    );
-    expect(out).toContain("rejected");
-    expect(createSpy).not.toHaveBeenCalled();
-  });
-
-  it("medium caller → medium worker rejected (medium→medium not allowed)", async () => {
-    const { ctx, createSpy } = makeCtx({ callerTier: "medium", callerDepth: 1 });
-    const executeFanout = await importExecuteFanout();
-    const out = await executeFanout(
-      ctx,
-      { items: [{ tier: "medium", prompt: "do work" }] },
-      "caller-sid",
-      undefined as any,
-    );
-    expect(out).toContain("rejected");
-    expect(createSpy).not.toHaveBeenCalled();
-  });
-
-  it("focused caller → heavy worker rejected (focused→heavy not allowed)", async () => {
-    const { ctx, createSpy } = makeCtx({ callerTier: "heavy", callerDepth: 1 });
-    const executeFanout = await importExecuteFanout();
-    const out = await executeFanout(
-      ctx,
-      { items: [{ tier: "heavy", prompt: "do work" }] },
-      "caller-sid",
-      undefined as any,
-    );
-    expect(out).toContain("rejected");
-    expect(createSpy).not.toHaveBeenCalled();
-  });
-
-  it("heavy caller → heavy worker rejected (heavy→heavy not allowed)", async () => {
-    const { ctx, createSpy } = makeCtx({ callerTier: "heavy", callerDepth: 1 });
-    const executeFanout = await importExecuteFanout();
-    const out = await executeFanout(
-      ctx,
-      { items: [{ tier: "heavy", prompt: "do work" }] },
-      "caller-sid",
-      undefined as any,
-    );
-    expect(out).toContain("rejected");
-    expect(createSpy).not.toHaveBeenCalled();
-  });
+  const cases = [
+    { callerTier: "fast", workerTier: "fast", label: "fast caller" },
+    { callerTier: "light", workerTier: "fast", label: "light caller" },
+    { callerTier: "medium", workerTier: "light", label: "medium→light" },
+    { callerTier: "medium", workerTier: "medium", label: "medium→medium" },
+    { callerTier: "heavy", workerTier: "heavy", label: "heavy→heavy" },
+    { callerTier: "focused", workerTier: "heavy", label: "focused→heavy" },
+  ];
+  for (const { callerTier, workerTier, label } of cases) {
+    it(`${label} → rejected, no SDK calls`, async () => {
+      const { ctx, createSpy } = makeCtx({
+        callerTier: callerTier as "medium" | "heavy" | "focused",
+        callerDepth: 1,
+      });
+      const { executeFanout } = await import("../../src/plugin/fanout");
+      const out = await executeFanout(
+        ctx,
+        { items: [{ tier: workerTier, prompt: "do work" }] },
+        "caller-sid",
+        undefined as any,
+      );
+      expect(out).toContain("rejected");
+      expect(createSpy).not.toHaveBeenCalled();
+    });
+  }
 });
 
-// ---------------------------------------------------------------------------
-// Test: Eligibility rules
-// ---------------------------------------------------------------------------
-
 describe("executeFanout — eligibility rules", () => {
-  it("depth-0 orchestrator → rejected", async () => {
-    const { ctx, createSpy } = makeCtx({ callerDepth: 0, callerTier: "medium" });
-    const executeFanout = await importExecuteFanout();
-    const out = await executeFanout(
-      ctx,
-      { items: [{ tier: "fast", prompt: "do work" }] },
-      "orchestrator-sid",
-      undefined as any,
-    );
-    expect(out).toContain("rejected");
-    expect(createSpy).not.toHaveBeenCalled();
-  });
-
-  it("depth-2 grandchild → rejected", async () => {
-    const { ctx, createSpy } = makeCtx({ callerDepth: 2, callerTier: "heavy" });
-    const executeFanout = await importExecuteFanout();
-    const out = await executeFanout(
-      ctx,
-      { items: [{ tier: "fast", prompt: "do work" }] },
-      "grandchild-sid",
-      undefined as any,
-    );
-    expect(out).toContain("rejected");
-    expect(createSpy).not.toHaveBeenCalled();
-  });
-
-  it("caller is a producer session → rejected", async () => {
-    const { ctx, createSpy } = makeCtx({ callerDepth: 1, callerTier: "heavy", isProducer: true });
-    const executeFanout = await importExecuteFanout();
-    const out = await executeFanout(
-      ctx,
-      { items: [{ tier: "fast", prompt: "do work" }] },
-      "producer-sid",
-      undefined as any,
-    );
-    expect(out).toContain("rejected");
-    expect(createSpy).not.toHaveBeenCalled();
-  });
-
-  it("caller is a grader session → rejected", async () => {
-    const { ctx, createSpy } = makeCtx({ callerDepth: 1, callerTier: "heavy", isGrader: true });
-    const executeFanout = await importExecuteFanout();
-    const out = await executeFanout(
-      ctx,
-      { items: [{ tier: "fast", prompt: "do work" }] },
-      "grader-sid",
-      undefined as any,
-    );
-    expect(out).toContain("rejected");
-    expect(createSpy).not.toHaveBeenCalled();
-  });
-
-  it("caller is a fanout worker → rejected", async () => {
-    const { ctx, createSpy } = makeCtx({
-      callerDepth: 1,
-      callerTier: "heavy",
+  const cases = [
+    {
+      depth: 0,
+      tier: "medium",
+      label: "depth-0 orchestrator",
+      isGrader: false,
+      isProducer: false,
+      isFanoutWorker: false,
+    },
+    {
+      depth: 2,
+      tier: "heavy",
+      label: "depth-2 grandchild",
+      isGrader: false,
+      isProducer: false,
+      isFanoutWorker: false,
+    },
+    {
+      depth: 1,
+      tier: "heavy",
+      label: "producer session",
+      isGrader: false,
+      isProducer: true,
+      isFanoutWorker: false,
+    },
+    {
+      depth: 1,
+      tier: "heavy",
+      label: "grader session",
+      isGrader: true,
+      isProducer: false,
+      isFanoutWorker: false,
+    },
+    {
+      depth: 1,
+      tier: "heavy",
+      label: "fanout worker",
+      isGrader: false,
+      isProducer: false,
       isFanoutWorker: true,
+    },
+  ];
+  for (const { depth, tier, label, isGrader, isProducer, isFanoutWorker } of cases) {
+    it(`${label} → rejected`, async () => {
+      const { ctx, createSpy } = makeCtx({
+        callerDepth: depth,
+        callerTier: tier as "medium" | "heavy" | "focused",
+        isGrader,
+        isProducer,
+        isFanoutWorker,
+      });
+      const { executeFanout } = await import("../../src/plugin/fanout");
+      const out = await executeFanout(
+        ctx,
+        { items: [{ tier: "fast", prompt: "do work" }] },
+        "caller-sid",
+        undefined as any,
+      );
+      expect(out).toContain("rejected");
+      expect(createSpy).not.toHaveBeenCalled();
     });
-    const executeFanout = await importExecuteFanout();
-    const out = await executeFanout(
-      ctx,
-      { items: [{ tier: "fast", prompt: "do work" }] },
-      "worker-sid",
-      undefined as any,
-    );
-    expect(out).toContain("rejected");
-    expect(createSpy).not.toHaveBeenCalled();
-  });
-
-  it("fresh cfg.fanout.enabled === false → rejected (kill switch)", async () => {
+  }
+  it("kill switch disabled → rejected", async () => {
     const { ctx, createSpy } = makeCtx({
       callerDepth: 1,
       callerTier: "heavy",
       fanoutEnabled: false,
     });
-    const executeFanout = await importExecuteFanout();
+    const { executeFanout } = await import("../../src/plugin/fanout");
     const out = await executeFanout(
       ctx,
       { items: [{ tier: "fast", prompt: "do work" }] },
@@ -399,14 +245,13 @@ describe("executeFanout — eligibility rules", () => {
     expect(out).toContain("rejected");
     expect(createSpy).not.toHaveBeenCalled();
   });
-
   it("breaker open → rejected", async () => {
     const { ctx, createSpy } = makeCtx({
       callerDepth: 1,
       callerTier: "heavy",
       breakerState: "open",
     });
-    const executeFanout = await importExecuteFanout();
+    const { executeFanout } = await import("../../src/plugin/fanout");
     const out = await executeFanout(
       ctx,
       { items: [{ tier: "fast", prompt: "do work" }] },
@@ -418,110 +263,39 @@ describe("executeFanout — eligibility rules", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Test: Empty batch
-// ---------------------------------------------------------------------------
-
 describe("executeFanout — empty batch (engram #4963)", () => {
   it("items: [] → typed rejected, zero SDK calls", async () => {
     const { ctx, createSpy } = makeCtx({ callerDepth: 1, callerTier: "heavy" });
-    const executeFanout = await importExecuteFanout();
+    const { executeFanout } = await import("../../src/plugin/fanout");
     const out = await executeFanout(ctx, { items: [] }, "caller-sid", undefined as any);
     expect(out).toContain("rejected");
     expect(createSpy).not.toHaveBeenCalled();
   });
 });
 
-// ---------------------------------------------------------------------------
-// Test: Tool registration (handled separately in plugin-runtime tests)
-// ---------------------------------------------------------------------------
-
-describe("executeFanout — stub behavior (allowed edge)", () => {
-  it("all eligibility checks pass → stub returns typed rejected (real executor is PR 3b)", async () => {
-    const { ctx, createSpy } = makeCtx({
-      callerDepth: 1,
-      callerTier: "heavy",
-      fanoutEnabled: true,
+describe("executeFanout — stub behavior", () => {
+  const cases = [
+    { callerTier: "heavy", workerTier: "fast", label: "heavy→fast" },
+    { callerTier: "medium", workerTier: "fast", label: "medium→fast" },
+    { callerTier: "heavy", workerTier: "light", label: "heavy→light" },
+    { callerTier: "heavy", workerTier: "medium", label: "heavy→medium" },
+  ];
+  for (const { callerTier, workerTier, label } of cases) {
+    it(`${label} → stub returns rejected`, async () => {
+      const { ctx, createSpy } = makeCtx({
+        callerDepth: 1,
+        callerTier: callerTier as "medium" | "heavy",
+        fanoutEnabled: true,
+      });
+      const { executeFanout } = await import("../../src/plugin/fanout");
+      const out = await executeFanout(
+        ctx,
+        { items: [{ tier: workerTier, prompt: "do work" }] },
+        "caller-sid",
+        undefined as any,
+      );
+      expect(out).toContain("rejected");
+      expect(createSpy).not.toHaveBeenCalled();
     });
-    const executeFanout = await importExecuteFanout();
-    // All gates pass for heavy→fast (allowed edge)
-    const out = await executeFanout(
-      ctx,
-      { items: [{ tier: "fast", prompt: "do work" }] },
-      "heavy-caller-sid",
-      undefined as any,
-    );
-    // Stub returns rejected because real executor is PR 3b
-    expect(out).toContain("rejected");
-    // No SDK calls because stub immediately returns rejected
-    expect(createSpy).not.toHaveBeenCalled();
-  });
-
-  it("medium→fast allowed edge → stub returns rejected", async () => {
-    const { ctx, createSpy } = makeCtx({
-      callerDepth: 1,
-      callerTier: "medium",
-      fanoutEnabled: true,
-    });
-    const executeFanout = await importExecuteFanout();
-    const out = await executeFanout(
-      ctx,
-      { items: [{ tier: "fast", prompt: "do work" }] },
-      "medium-caller-sid",
-      undefined as any,
-    );
-    expect(out).toContain("rejected");
-    expect(createSpy).not.toHaveBeenCalled();
-  });
-
-  it("focused→fast allowed edge → stub returns rejected", async () => {
-    const { ctx, createSpy } = makeCtx({
-      callerDepth: 1,
-      callerTier: "heavy", // heavy has same allowlist as focused
-      fanoutEnabled: true,
-    });
-    const executeFanout = await importExecuteFanout();
-    const out = await executeFanout(
-      ctx,
-      { items: [{ tier: "fast", prompt: "do work" }] },
-      "focused-caller-sid",
-      undefined as any,
-    );
-    expect(out).toContain("rejected");
-    expect(createSpy).not.toHaveBeenCalled();
-  });
-
-  it("focused→light allowed edge → stub returns rejected", async () => {
-    const { ctx, createSpy } = makeCtx({
-      callerDepth: 1,
-      callerTier: "heavy",
-      fanoutEnabled: true,
-    });
-    const executeFanout = await importExecuteFanout();
-    const out = await executeFanout(
-      ctx,
-      { items: [{ tier: "light", prompt: "do work" }] },
-      "focused-caller-sid",
-      undefined as any,
-    );
-    expect(out).toContain("rejected");
-    expect(createSpy).not.toHaveBeenCalled();
-  });
-
-  it("focused→medium allowed edge → stub returns rejected", async () => {
-    const { ctx, createSpy } = makeCtx({
-      callerDepth: 1,
-      callerTier: "heavy",
-      fanoutEnabled: true,
-    });
-    const executeFanout = await importExecuteFanout();
-    const out = await executeFanout(
-      ctx,
-      { items: [{ tier: "medium", prompt: "do work" }] },
-      "focused-caller-sid",
-      undefined as any,
-    );
-    expect(out).toContain("rejected");
-    expect(createSpy).not.toHaveBeenCalled();
-  });
+  }
 });
