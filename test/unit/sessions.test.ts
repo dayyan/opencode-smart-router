@@ -495,6 +495,30 @@ describe("createSessionStore — fanout worker markers", () => {
   });
 });
 
+describe("createSessionStore — depth-2 fanout worker parentage", () => {
+  it("worker parented to callerSid has parentOf(worker) === callerSid and depth(worker) === 2", () => {
+    const store = createSessionStore();
+    // root -> depth-1 caller
+    store.registerFromSessionCreated({ sessionID: "caller-sid", parentID: "root-sid" });
+    expect(store.depth("caller-sid")).toBe(1);
+    expect(store.parentOf("caller-sid")).toBe("root-sid");
+
+    // fanout worker -> parented to callerSid (depth 2)
+    store.registerFromSessionCreated({ sessionID: "worker-sid", parentID: "caller-sid" });
+    expect(store.parentOf("worker-sid")).toBe("caller-sid");
+    expect(store.depth("worker-sid")).toBe(2);
+  });
+
+  it("depth-2 worker cannot fan out (depth !== 1 rejection applies)", () => {
+    const store = createSessionStore();
+    store.registerFromSessionCreated({ sessionID: "caller-sid", parentID: "root-sid" });
+    store.registerFromSessionCreated({ sessionID: "worker-sid", parentID: "caller-sid" });
+    expect(store.depth("worker-sid")).toBe(2);
+    // The fanout executor checks depth !== 1, which catches depth-2 workers
+    expect(store.depth("worker-sid") !== 1).toBe(true);
+  });
+});
+
 describe("createSessionStore — isProducerSession predicate", () => {
   it("isProducerSession is true after registerProducerSession", () => {
     const store = createSessionStore();

@@ -42,7 +42,7 @@ const DELEGATE_DESCRIPTION =
   "Delegate a task to a tier subagent (fast | medium | heavy). The subagent's result is INDEPENDENTLY VERIFIED (deterministic checks, or an independent grader at >= the producer tier in a fresh session) before it is returned. Returns an accepted result on PASS, or an honest 'unmet' status on FAIL — never a self-reported completion. Optionally pass an [acceptance]...[/acceptance] block to define the Definition of Done.";
 
 const FANOUT_DESCRIPTION =
-  "Delegate a batch of bounded lower-tier worker tasks in parallel from a depth-1 medium/focused/heavy caller. Workers are root-session siblings (never nested under the caller). Caller tier policy: medium->fast; focused/heavy->fast|light|medium. fast/light cannot call this tool. The plugin owns deadlines, cancellation, and cleanup.";
+  "Delegate a batch of bounded lower-tier worker tasks in parallel from a depth-1 medium/focused/heavy caller. Workers are child sessions of the caller at depth 2 and cannot spawn further sessions. Caller tier policy: medium->fast; focused/heavy->fast|light|medium. fast/light cannot call this tool. The plugin owns deadlines, cancellation, and cleanup.";
 
 // ---------------------------------------------------------------------------
 // Typed hook wrapper lambdas.

@@ -229,6 +229,14 @@ describe("executeFanout — eligibility rules", () => {
       isProducer: false,
       isFanoutWorker: true,
     },
+    {
+      depth: 2,
+      tier: "heavy",
+      label: "depth-2 fanout worker",
+      isGrader: false,
+      isProducer: false,
+      isFanoutWorker: true,
+    },
   ];
   for (const { depth, tier, label, isGrader, isProducer, isFanoutWorker } of cases) {
     it(`${label} → rejected`, async () => {
@@ -294,32 +302,9 @@ describe("executeFanout — empty batch (engram #4963)", () => {
   });
 });
 
-describe("executeFanout — stub behavior", () => {
-  const cases = [
-    { callerTier: "heavy", workerTier: "fast", label: "heavy→fast" },
-    { callerTier: "medium", workerTier: "fast", label: "medium→fast" },
-    { callerTier: "heavy", workerTier: "light", label: "heavy→light" },
-    { callerTier: "heavy", workerTier: "medium", label: "heavy→medium" },
-  ];
-  for (const { callerTier, workerTier, label } of cases) {
-    it(`${label} → stub returns rejected`, async () => {
-      const { ctx, createSpy } = makeCtx({
-        callerDepth: 1,
-        callerTier: callerTier as "medium" | "heavy",
-        fanoutEnabled: true,
-      });
-      const { executeFanout } = await import("../../src/plugin/fanout");
-      const out = await executeFanout(
-        ctx,
-        { items: [{ tier: workerTier, prompt: "do work" }] },
-        "caller-sid",
-        undefined as any,
-      );
-      expect(out).toContain("rejected");
-      expect(createSpy).not.toHaveBeenCalled();
-    });
-  }
-});
+// (stub behavior tests removed — they depended on the now-removed caller_is_root
+// rejection path; all tier combinations tested here are valid fanout edges per the
+// caller/worker policy, so no stub rejection was ever semantically meaningful)
 
 // ---------------------------------------------------------------------------
 // Behavior tests (PR 3b — real executor)
@@ -354,8 +339,8 @@ describe("executeFanout — allowed edges (real executor)", () => {
   }
 });
 
-describe("executeFanout — no-grandchild invariant", () => {
-  it("every session.create call has body.parentID === rootSid (caller's parent), NOT callerSid", async () => {
+describe("executeFanout — caller-parented invariant", () => {
+  it("every session.create call has body.parentID === callerSid (depth-1 caller), NOT rootSid", async () => {
     const { ctx, createSpy } = makeCtx({
       callerTier: "heavy",
       callerDepth: 1,
@@ -376,8 +361,8 @@ describe("executeFanout — no-grandchild invariant", () => {
     );
     for (const call of createSpy.mock.calls) {
       const parentID = call[0]?.body?.parentID;
-      expect(parentID).toBe("root-sid");
-      expect(parentID).not.toBe("caller-sid");
+      expect(parentID).toBe("caller-sid");
+      expect(parentID).not.toBe("root-sid");
     }
   });
 });

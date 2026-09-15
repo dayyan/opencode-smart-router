@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Bounded child-initiated parallel work without physical grandchildren.
+Bounded child-initiated parallel work whose workers are depth-2 children and terminal leaves.
 
 ## Requirements
 
@@ -20,14 +20,19 @@ Fanout MUST admit only depth-1 medium/focused/heavy callers, excluding producers
 - WHEN items is empty
 - THEN typed `rejected` returns without SDK calls
 
-### Requirement: Parallel Root-Parented Workers
+### Requirement: Parallel Caller-Parented Workers
 
-Workers MUST use the caller's root parent, their tier model/agent, and overlap within caps. Native task/delegate nesting guards MUST remain unchanged.
+Workers MUST use the depth-1 caller as parent (parentID = callerSid), their tier model/agent, and overlap within caps. Workers are depth-2 terminal leaves that cannot spawn further sessions. Native task/delegate nesting guards MUST remain unchanged.
 
-#### Scenario: Overlapping siblings
+#### Scenario: Overlapping children
 - GIVEN two permitted workers
 - WHEN neither prompt resolves
-- THEN both prompts start with root-parented sessions, never caller-parented sessions
+- THEN both prompts start in caller-parented depth-2 child sessions
+
+#### Scenario: Hard depth ceiling
+- GIVEN a depth-2 fanout worker
+- WHEN it attempts fanout, task, or delegate
+- THEN it is rejected before any SDK session creation and depth 3 never exists
 
 ### Requirement: Bounded Aggregation
 

@@ -228,15 +228,6 @@ export const executeFanout = async (
   const workerAllowlist =
     callerTier === "medium" ? MEDIUM_CALLER_WORKER_ALLOWLIST : HIGH_TIER_WORKER_ALLOWLIST;
 
-  // --- Caller must have a parent (workers are siblings of the caller, not children) ---
-  const rootSid = ctx.sessionStore.parentOf(callerSid);
-  if (!rootSid) {
-    log.warn({ event: "fanout.batch_rejected", reason: "caller_is_root" });
-    return formatRejectedAggregate(
-      "caller is root session; fanout workers require a parent session",
-    );
-  }
-
   // --- Batch-level cap ---
   if (args.items.length > effectiveCfg.maxWorkersPerBatch) {
     log.warn({
@@ -251,7 +242,7 @@ export const executeFanout = async (
   }
 
   // --- Per-item policy + slot acquisition ---
-  // Policy check is per-item: invalid tier edges get per-item rejection, siblings proceed.
+  // Policy check is per-item: invalid tier edges get per-item rejection; other items proceed.
   // Empty prompt is also per-item rejection. Slot acquisition failure is per-item;
   // batch rejection only if ALL items fail slot (not policy/empty).
   const itemResults = args.items.map((item) => {
@@ -341,12 +332,12 @@ export const executeFanout = async (
 
     // Release fanout slot in ALL exit paths (success, fail, timeout, throw)
     try {
-      // 1. Create session with root as parent (NOT callerSid — no grandchild invariant)
+      // 1. Create session as a depth-2 child of the caller; workers are terminal leaves
       let workerSid: string;
       try {
         const created = await withTimeout(
           ctx.plugin.client.session.create({
-            body: { parentID: rootSid },
+            body: { parentID: callerSid },
             ...(signal ? { signal } : {}),
           }),
           30_000,

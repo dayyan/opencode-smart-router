@@ -901,7 +901,7 @@ Advisory is the default. To change the level:
 
 ## Child-initiated fan-out (`fanout` tool)
 
-The `fanout` tool lets a medium, focused, or heavy tier spawn multiple **parallel sibling workers** under its own parent session — without escalating to the orchestrator. Workers run as depth-1 children of the orchestrator (never grandchildren), in parallel, each completing a bounded read-only task independently.
+The `fanout` tool lets a medium, focused, or heavy tier spawn multiple **parallel worker sessions as its own depth-2 children** — without escalating to the orchestrator. Workers are terminal leaves that cannot invoke `task`, `delegate`, or `fanout`. They run in parallel, each completing a bounded read-only task independently.
 
 **Purpose:** offload lower-value work (parallel searches, fact-checking, sub-task parallelization) from medium/focused/heavy to cheaper tiers, at lower total cost than sequential dispatches.
 
@@ -926,7 +926,7 @@ fanout(items: [
 ])
 ```
 
-Workers run in parallel. Results are aggregated as `## [n] tier=<t> status=<s>` in the caller's response. Workers are parented to the **orchestrator** (root), not to the caller — enforcing the no-grandchild invariant.
+Workers run in parallel. Results are aggregated as `## [n] tier=<t> status=<s>` in the caller's response. Workers are parented to the **caller** (depth 2), not the orchestrator/root — they are terminal leaves and cannot spawn further sessions.
 
 ### Configuration
 
