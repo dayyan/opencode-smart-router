@@ -12,8 +12,12 @@ describe("packaging: published tarball excludes tests and dev config (plan C4)",
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     });
-    const parsed = JSON.parse(raw) as Array<{ files: Array<{ path: string }> }>;
-    const paths = parsed.flatMap((p) => p.files.map((f) => f.path.replace(/\\/g, "/"))).sort();
+    // npm 7+ --json returns an array; npm 12 returns an object keyed by package name.
+    const parsed = JSON.parse(raw) as
+      | Record<string, { files: Array<{ path: string }> }>
+      | Array<{ files: Array<{ path: string }> }>;
+    const pkgs = Array.isArray(parsed) ? parsed : Object.values(parsed);
+    const paths = pkgs.flatMap((p) => p.files.map((f) => f.path.replace(/\\/g, "/"))).sort();
 
     // MUST NOT ship tests, docs, tmp, coverage, or dev config.
     expect(paths.some((p) => p.startsWith("test/"))).toBe(false);
